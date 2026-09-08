@@ -1,0 +1,10 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+scrape_configs:
+  - job_name: logiqa-backend
+    metrics_path: /metrics
+    static_configs:
+      # 全栈部署：prometheus 与 backend 同 compose 网络，直接走 service name
+      - targets: ['backend:8001']

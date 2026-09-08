@@ -1,0 +1,1093 @@
+"""RAG 问答编排：热点缓存 / 多轮指代消解 / 检索 / CRAG自纠错 / prompt / LLM / 后处理 / 相关问题推荐。"""
+import json
+import re
+import time
+import asyncio
+
+_bg_tasks: set = set()  # 持有后台 task 引用，防 GC
+
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
+
+from app.clients import redis_client
+from app.config import settings
+from app.core import safety
+from app.core.obs import degraded
+from app.providers.factory import get_llm_provider
+from app.rag import citation, prompt_templates
+from app.models.document import Document
+from app.services import config_service, conversation_service, kg_service, retrieval_service, term_service
+
+_HISTORY_LIMIT = 6  # 拼接最近 3 轮（6 条消息）
+
+
+def _cache_tenant(tenant: str | None) -> str:
+    return (tenant or "default").strip() or "default"
+
+
+def _cache_key(model_type: str | None, query: str, tenant: str | None = "default") -> str:
+    return f"qa:{_cache_tenant(tenant)}:{model_type or 'default'}:{query}"
+
+
+async def _is_blacklisted(nq: str) -> bool:
+    """缓存黑名单检查（高频坏答案禁缓存命中，由反馈驱动 auto_tune_cache_ttl 写入 Redis set）。"""
+    try:
+        from app.services.feedback_optimizer_service import is_query_blacklisted
+        return await is_query_blacklisted(nq)
+    except Exception:
+        return False
+
+
+async def _cache_knowledge_valid(
+    db: AsyncSession, cached: dict | None, tenant: str | None,
+) -> bool:
+    """缓存命中前复核其证据文档时效，防止已撤回/过期知识继续回答。"""
+    if not cached:
+        return False
+    doc_ids = {
+        str(item.get("docId") or item.get("doc_id") or "")
+        for item in (cached.get("retrievalSource") or [])
+        if isinstance(item, dict)
+    }
+    doc_ids.discard("")
+    if not doc_ids:
+        return not bool(tenant)
+    try:
+        if tenant:
+            owned = (
+                await db.execute(
+                    select(Document.id).where(
+                        Document.id.in_(doc_ids),
+                        Document.tenant_id == tenant,
+                    )
+                )
+            ).scalars().all()
+            if set(owned) != doc_ids:
+                return False
+        from app.services import knowledge_governance_service
+
+        blocked = await knowledge_governance_service.blocked_document_ids(
+            db, doc_ids, tenant_id=tenant,
+        )
+        return not blocked
+    except Exception as exc:
+        degraded("knowledge_governance_cache_gate", exc)
+        # 带租户的生产问答采用 fail-closed；离线/兼容调用未提供 tenant 时不改变旧行为。
+        return not bool(tenant)
+
+
+async def _crag_correct(
+    db: AsyncSession, nq: str, contexts: list[dict],
+    model_type: str | None, topk: int, tenant: str = "default",
+) -> tuple[list[dict], str, str, str]:
+    """CRAG 分级 + 纠错闭环。返回 (contexts, confidence, action, grade)。
+
+    分级：CRAG v2（LLM 逐条评估证据）优先，未启用/失败回退 v1（rerank top1 分数）。
+    incorrect → query 改写重检索 → 仍 incorrect → refused 保守拒答。
+    contexts 可能被纠错重检索替换。
+    """
+    confidence, action, grade = "high", "normal", ""
+    if not settings.CRAG_ENABLE:
+        return contexts, confidence, action, grade
+    from app.rag import crag
+
+    rerank_ok = settings.RERANK_ENABLE
+    # 分级：v2 优先，失败回退 v1
+    grade = ""
+    if settings.CRAG_PERDOC_ENABLE:
+        from app.rag import crag_v2
+        try:
+            grade, _ = await crag_v2.grade_with_llm(nq, contexts, model_type)
+        except Exception as e:
+            degraded("crag_v2", e)
+    if not grade:
+        top1 = float(contexts[0].get("score", 0.0)) if contexts else 0.0
+        grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+
+    if grade == crag.GRADE_INCORRECT:
+        try:
+            from app.services.query_rewrite import rewrite_query
+            new_q = await rewrite_query(nq, model_type, force=True)
+            if new_q and new_q != nq:
+                new_ctx = await retrieval_service.mixed_search(db, new_q, topk, tenant=tenant)
+                if new_ctx:
+                    contexts = new_ctx
+                    top1 = float(contexts[0].get("score", 0.0))
+                    grade, _ = crag.grade(top1, len(contexts), rerank_ok)
+                    action = "rewritten"
+        except Exception as e:
+            degraded("crag_rewrite", e)
+
+    # ambiguous 档邻域扩展：证据有限时捞相邻 chunk 补全上下文（默认关，开关 CRAG_NEIGHBOR_EXPAND_ENABLE）
+    if grade == crag.GRADE_AMBIGUOUS and getattr(settings, "CRAG_NEIGHBOR_EXPAND_ENABLE", False):
+        try:
+            contexts = await _expand_neighbors(db, contexts, getattr(settings, "CRAG_NEIGHBOR_WINDOW", 1))
+        except Exception as e:
+            degraded("crag_neighbor_expand", e)
+
+    confidence = crag.confidence_of(grade, action == "rewritten")
+    if grade == crag.GRADE_INCORRECT and action == "rewritten":
+        action = "refused"
+    try:
+        from app.core import metrics
+        metrics.CRAG_GRADE.labels(grade).inc()
+        metrics.CRAG_ACTION.labels(action).inc()
+        metrics.CRAG_CONFIDENCE.labels(confidence).inc()
+    except Exception:
+        pass
+    return contexts, confidence, action, grade
+
+
+async def _expand_neighbors(db: AsyncSession, contexts: list[dict], window: int = 1, max_add: int = 4) -> list[dict]:
+    """ambiguous 档邻域扩展：对 top 命中 chunk，捞同文档相邻 chunk_idx±window 补进 contexts。
+
+    去重（不重复已命中），数量限 max_add。补全证据完整性（关键信息被切到邻块时捞回）。
+    与检索层 small-to-big(_expand_parents) 互补：本层在 CRAG 证据不足时触发，开关独立。
+    """
+    from sqlalchemy import and_, or_, select
+    from app.models.chunk import Chunk
+    from app.models.document import Document
+
+    seeds = [(c.get("docId"), c.get("chunkIdx")) for c in contexts[:3]
+             if c.get("docId") and c.get("chunkIdx") is not None]
+    if not seeds:
+        return contexts
+    conds = []
+    for doc_id, cidx in seeds:
+        for off in range(-int(window), int(window) + 1):
+            if off == 0:
+                continue
+            conds.append((doc_id, int(cidx) + off))
+    if not conds:
+        return contexts
+    existing = {(c.get("docId"), c.get("chunkIdx")) for c in contexts}
+    rows = (await db.execute(
+        select(Chunk, Document).join(Document, Chunk.doc_id == Document.id).where(
+            or_(*[and_(Chunk.doc_id == d, Chunk.chunk_idx == ci) for d, ci in conds])
+        )
+    )).all()
+    added = []
+    for c, d in rows:
+        if (c.doc_id, c.chunk_idx) in existing:
+            continue
+        added.append({
+            "chunk": c.content or "", "score": 0.0, "docId": c.doc_id,
+            "docName": d.doc_name or "", "docType": d.doc_type or "",
+            "chunkIdx": c.chunk_idx, "sources": ["neighbor"],
+        })
+        existing.add((c.doc_id, c.chunk_idx))
+    return contexts + added[:max_add]
+
+
+async def _search_query_for_retrieve(
+    db: AsyncSession, query: str, nq: str, conversation_id: str | None,
+    history: list[dict], model_type: str | None,
+) -> str:
+    """多轮指代消解：把追问改写成带上下文的独立查询用于检索（S7）。
+
+    单轮/关闭/失败返回 nq（原归一化 query）。改写仅影响检索，不影响给 LLM 的原问题。
+    """
+    if not conversation_id or not history:
+        return nq
+    if not getattr(settings, "STANDALONE_REWRITE_ENABLE", False):
+        return nq
+    from app.services import standalone_query
+    try:
+        rewritten = await standalone_query.rewrite_standalone(query, history, model_type)
+        return term_service.normalize(rewritten) if rewritten else nq
+    except Exception as e:
+        degraded("standalone_dispatch", e)
+        return nq
+
+
+async def _enrich_citation_metadata(db: AsyncSession, citation_map: list) -> None:
+    """跨 task 依赖补查（Task 7 reviewer 遗留 gap）：contexts 是 retrieval_service._to_item
+    产物，**不含** chunk 元数据（section_path/page_num/bbox/table_header）。
+
+    按 citation_map 的 chunk_id 批量查 Chunk 表（一次 select...in_()），把元数据 merge
+    进每个 CitationItem.metadata，使引用卡片能展示章节/页码/高亮定位。
+    失败静默降级（不阻塞主链路）。
+    """
+    if not citation_map:
+        return
+    try:
+        from app.models.chunk import Chunk
+        chunk_ids = {c.chunk_id for c in citation_map if c.chunk_id}
+        if not chunk_ids:
+            return
+        rows = (await db.execute(
+            select(Chunk.id, Chunk.section_path, Chunk.page_num, Chunk.bbox, Chunk.table_header)
+            .where(Chunk.id.in_(chunk_ids))
+        )).all()
+        meta_by_id = {
+            r[0]: {
+                "section_path": r[1] or "",
+                "page_num": r[2],
+                "bbox": r[3],
+                "table_header": r[4] or "",
+            }
+            for r in rows
+        }
+        for c in citation_map:
+            if not c.chunk_id:
+                continue
+            m = meta_by_id.get(c.chunk_id)
+            if m:
+                # merge：parse_citation_answer 已填 doc_title/original_text，这里只补定位字段
+                c.metadata.update(m)
+    except Exception as e:
+        degraded("citation_metadata_enrich", e)
+
+
+async def _apply_citation_verification(
+    ans: str, contexts: list[dict], model_type: str | None,
+    *, db: AsyncSession | None = None, cmap_override: list | None = None,
+) -> tuple[str, dict]:
+    """可核验引用后处理：结构化解析 → 元数据补查 → 三层校验 → 返回 (最终答案, 附加字段)。
+
+    CITATION_VERIFIER_ENABLE=False 时直接返回 (ans, {})，零破坏（前端无新字段、主链路零影响）。
+    开启时：build_index(contexts) → parse_citation_answer(ans,...) → (可选)Chunk 元数据补查
+    → verify(...) → 把 dropped 编号替换为警示说明；extras 含 citationVerified/citationIndex/
+    citationMap/unverifiedClaims。校验 rewrite_needed=True 透传到 extras，由 answer 决定
+    是否触发 CRAG 二次检索（最多 1 次，防死循环）。
+
+    db：可选 AsyncSession，由 answer 传入以回填 Chunk 元数据；单测不传则跳过补查。
+    """
+    if not getattr(settings, "CITATION_VERIFIER_ENABLE", False):
+        return ans, {}
+    from app.rag.citation_index import build_index
+    from app.rag.citation_verifier import verify
+
+    index = build_index(contexts)
+    if cmap_override is not None:
+        # STRUCTURED_OUTPUT：ans 已是 answer_text，cmap 已结构化（每 ref_id 一项，不重复），不再 parse
+        ans_text = ans
+        cmap = cmap_override
+        unverified: list = []
+    else:
+        from app.schemas.citation import parse_citation_answer
+        parsed = parse_citation_answer(ans, index, contexts)
+        ans_text = parsed.answer_text
+        cmap = parsed.citation_map
+        unverified = parsed.unverified_claim
+
+    # 跨 task 依赖：按 chunk_id 批量回填 section_path/page_num/bbox/table_header
+    if db is not None:
+        await _enrich_citation_metadata(db, cmap)
+
+    verdict = await verify(ans_text, cmap, index, contexts, model_type)
+
+    # 把 drop 的编号从答案里剔除（替换为警示说明）
+    final_ans = ans_text
+    for ref in verdict.dropped_refs:
+        final_ans = final_ans.replace(f"[{ref}]", "（该引用经核验无可靠证据支撑）")
+    extras = {
+        "citationVerified": verdict.model_dump(),
+        "citationIndex": index,
+        "citationMap": [c.model_dump() for c in cmap if c.ref_id not in verdict.dropped_refs],
+        "unverifiedClaims": unverified + verdict.unverified_additions,
+    }
+    return final_ans, extras
+
+
+async def answer(
+    db: AsyncSession, query: str, model_type: str | None = None,
+    topk: int = 5, conversation_id: str | None = None, username: str = "",
+    tenant: str = "default", user_dept: str | None = None, user_role: str | None = None,
+) -> dict:
+    t0 = time.time()
+    nq = term_service.normalize(query)
+    safety.guard_query(query)  # 入站 prompt injection 告警（D4）
+    is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
+
+    # Self-RAG：非运维问题跳过检索直接拒答（省成本+防污染，SELF_RAG_ENABLE 默认关）
+    if settings.SELF_RAG_ENABLE:
+        from app.services import self_rag as self_rag_svc
+        if not await self_rag_svc.need_retrieve(query, model_type):
+            return {
+                "answer": self_rag_svc.SKIP_ANSWER, "retrievalSource": [],
+                "responseTime": round(time.time() - t0, 3), "hallucinationRate": 0.0,
+                "cached": False, "conversationId": conversation_id or "",
+                "confidence": "refused", "cragAction": "self_rag_skip",
+            }
+
+    # 多轮不走缓存（上下文变化）；单轮走三级缓存：Redis(L1) → 语义缓存(L1.5) → MySQL(L2) → LLM(L3)
+    cache_layer = "llm"  # 默认走 LLM
+    if is_single and not await _is_blacklisted(nq):
+        # L1: Redis 热点缓存（精确 key 匹配）
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+        except Exception as e:
+            degraded("qa_cache_get", e)
+            cached = None
+        if cached and await _cache_knowledge_valid(db, cached, tenant):
+            cached["cached"] = True
+            cached["cacheLayer"] = "redis"
+            cached["responseTime"] = round(time.time() - t0, 3)
+            try:
+                from app.core import metrics
+                metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                metrics.cache_hit_inc("redis")
+            except Exception:
+                pass
+            return cached
+
+        # L2: MySQL 二级缓存（精确持久，Redis 过期/evict 时兜底；优先于模糊语义匹配）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
+                    mysql_cached["cached"] = True
+                    mysql_cached["cacheLayer"] = "mysql"
+                    mysql_cached["responseTime"] = round(time.time() - t0, 3)
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                        metrics.cache_hit_inc("mysql")
+                    except Exception:
+                        pass
+                    return mysql_cached
+            except Exception as e:
+                degraded("qa_cache_mysql", e)
+
+        # L1.5: 语义缓存（模糊相似，精确持久 miss 后兜底）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_get
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq, tenant_id=tenant)
+                if (
+                    sc_data
+                    and sc_type in ("semantic_high", "semantic_medium")
+                    and await _cache_knowledge_valid(db, sc_data, tenant)
+                ):
+                    sc_data["cached"] = True
+                    sc_data["cacheLayer"] = sc_type
+                    sc_data["semanticSimilarity"] = round(sc_sim, 4)
+                    sc_data["responseTime"] = round(time.time() - t0, 3)
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                        metrics.cache_hit_inc("semantic")
+                    except Exception:
+                        pass
+                    return sc_data
+            except Exception as e:
+                degraded("semantic_cache_get", e)
+
+    # 多轮历史（提前获取：供指代消解 + 拼 LLM 上下文，避免重复查）
+    history: list[dict] = []
+    if conversation_id:
+        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+    # 多轮指代消解：检索用改写后的独立查询
+    search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
+
+    # 多轮且 query 完整(standalone 未改写 search_q==nq) → 也查 Redis 热点缓存
+    # 场景：用户点推荐问题(完整 query)接续对话，答案不依赖上下文，可安全命中
+    if conversation_id and search_q == nq and not await _is_blacklisted(nq):
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            if cached and await _cache_knowledge_valid(db, cached, tenant):
+                cached["cached"] = True
+                cached["cacheLayer"] = "redis"
+                cached["responseTime"] = round(time.time() - t0, 3)
+                try:
+                    from app.core import metrics
+                    metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "true").inc()
+                    metrics.cache_hit_inc("redis")
+                except Exception:
+                    pass
+                return cached
+        except Exception as e:
+            degraded("qa_cache_get_multi", e)
+
+    # 智能路由：根据查询特征选择最优检索路径（Phase A）
+    routing = None
+    if settings.ROUTING_ENABLE:
+        try:
+            from app.routing.routing_service import route_query
+            routing = route_query(search_q)
+        except Exception as e:
+            degraded("routing_dispatch", e)
+
+    contexts = await retrieval_service.mixed_search(
+        db, search_q, topk, tenant=tenant, routing_decision=routing,
+        user_dept=user_dept, user_role=user_role,
+    )
+    if not contexts:
+        # 无结果兜底：记录为知识缺口（喂证据补全闭环）+ 友好引导，而非生硬拒答
+        try:
+            from app.services.evidence_gap_service import collect
+            await collect(nq, "", "refused", "", "", "auto", tenant or "default")
+        except Exception:
+            pass
+        return {
+            "answer": (f"未在知识库检索到与「{nq[:40]}」直接相关的内容。建议：\n"
+                       f"① 换用更具体的设备/故障术语重新提问（如设备型号、故障现象）；\n"
+                       f"② 确认相关文档已上传并完成「解析 + 向量化」；\n"
+                       f"③ 该问题已自动记录为知识缺口，补充资料后将纳入检索。"),
+            "retrievalSource": [], "responseTime": round(time.time() - t0, 3),
+            "hallucinationRate": 0.0, "cached": False, "confidence": "refused",
+            "conversationId": conversation_id or "",
+        }
+
+    # Corrective RAG：分级 + 纠错闭环
+    contexts, confidence, crag_action, crag_grade = await _crag_correct(
+        db, nq, contexts, model_type, topk, tenant
+    )
+
+    # GraphRAG：融合知识图谱结构化上下文（KG_RAG_ENABLE 默认开）
+    graph: list[str] = []
+    if settings.KG_RAG_ENABLE:
+        try:
+            graph = await kg_service.graph_context(nq, db=db, tenant=tenant)
+        except Exception as e:
+            degraded("kg_graph_context", e)
+            graph = []
+    _structured = (getattr(settings, "CITATION_STRUCTURED_OUTPUT", False)
+                   and getattr(settings, "CITATION_VERIFIER_ENABLE", False))
+    messages = prompt_templates.build_messages_with_history(
+        nq, contexts, history, graph, confidence, structured=_structured,
+    )
+    _llm0 = time.time()
+    raw = await get_llm_provider(model_type).chat(messages, temperature=config_service.rt_temperature())
+    raw = safety.safe_answer(raw)  # 答案脱敏（PII_MASK_ENABLE 开启时，D4）
+    # STRUCTURED_OUTPUT：LLM 输出 JSON → parse 取 answer_text + 结构化 citation_map(每 ref 一项不重复)
+    # 跳过 auto_cite(结构化已有 cmap)；否则走 auto_cite 补标(现状)。
+    _cmap_override = None
+    if _structured:
+        from app.rag.citation_index import build_index as _bi
+        from app.schemas.citation import parse_citation_answer as _pca
+        _parsed0 = _pca(raw, _bi(contexts), contexts)
+        ans = _parsed0.answer_text or raw
+        _trace = citation.evidence_trace(ans)
+        if _parsed0.structured:           # LLM 真输出 JSON → 用结构化 cmap(每 ref_id 一项)
+            _cmap_override = _parsed0.citation_map
+    elif getattr(settings, "CITATION_AUTO_ENABLE", True):
+        ans, _trace = await citation.auto_cite(raw, contexts)
+    else:
+        ans = raw
+        _trace = citation.evidence_trace(ans)
+    # ===== Task 10: 可核验引用三层校验 + 校验-CRAG 联动 =====
+    final_ans, citation_extras = await _apply_citation_verification(
+        ans, contexts, model_type, db=db, cmap_override=_cmap_override,
+    )
+    # 校验要求 rewrite 且开关开 → 复用 rewrite_query + mixed_search 重检索重生成再 verify（最多 1 次，防死循环）
+    if (citation_extras.get("citationVerified", {}).get("rewrite_needed")
+            and getattr(settings, "CITATION_REWRITE_ON_FAIL", True)):
+        try:
+            from app.services.query_rewrite import rewrite_query
+            new_q = await rewrite_query(nq, model_type, force=True)
+            if new_q and new_q != nq:
+                contexts2 = await retrieval_service.mixed_search(
+                    db, new_q, topk, tenant=tenant,
+                    user_dept=user_dept, user_role=user_role,
+                )
+                if contexts2:
+                    messages2 = prompt_templates.build_messages_with_history(
+                        new_q, contexts2, history, graph, confidence, structured=_structured,
+                    )
+                    ans2 = await get_llm_provider(model_type).chat(
+                        messages2, temperature=config_service.rt_temperature(),
+                    )
+                    ans2 = safety.safe_answer(ans2)
+                    _cmap_override2 = None
+                    if _structured:
+                        from app.rag.citation_index import build_index as _bi
+                        from app.schemas.citation import parse_citation_answer as _pca
+                        _parsed2 = _pca(ans2, _bi(contexts2), contexts2)
+                        ans2 = _parsed2.answer_text or ans2
+                        if _parsed2.structured:
+                            _cmap_override2 = _parsed2.citation_map
+                    elif getattr(settings, "CITATION_AUTO_ENABLE", True):
+                        ans2, _trace2 = await citation.auto_cite(ans2, contexts2)
+                    final_ans, citation_extras = await _apply_citation_verification(
+                        ans2, contexts2, model_type, db=db, cmap_override=_cmap_override2,
+                    )
+                    contexts = contexts2
+                    _trace = citation.evidence_trace(final_ans)
+        except Exception as e:
+            degraded("citation_rewrite联动", e)
+    ans = final_ans   # 校验/联动可能改写答案（drop→警示替换；rewrite→二次生成答案）
+    # ===== /Task 10 =====
+    try:
+        from app.core import metrics
+        _p = model_type or settings.LLM_PROVIDER
+        metrics.LLM_CALLS.labels(_p).inc()
+        metrics.LLM_LATENCY.labels(_p).observe(time.time() - _llm0)
+    except Exception:
+        pass
+
+    # 持久化对话
+    if not conversation_id:
+        conv = await conversation_service.create_conversation(db, username, query)
+        conversation_id = conv.id
+    await conversation_service.save_message(db, conversation_id, "user", query)
+    await conversation_service.save_message(db, conversation_id, "assistant", ans)
+
+    _halluc = citation.estimate_hallucination(ans, len(contexts))
+    try:
+        from app.core import metrics
+        metrics.UNGROUNDED_RATIO.observe(_halluc)   # 启发式未引用率(廉价代理)；HALLUC 留给 LLM-judge 真值
+    except Exception:
+        pass
+    result = {
+        "answer": ans,
+        "retrievalSource": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
+        "evidenceTrace": _trace,
+        "graphCount": len(graph),
+        "highRisk": safety.extract_high_risk(ans),
+        "confidence": confidence,
+        "cragAction": crag_action,
+        "cragGrade": crag_grade,
+        "responseTime": round(time.time() - t0, 3),
+        "hallucinationRate": _halluc,
+        "cached": False,
+        "cacheLayer": "llm",
+        "route": routing.route if routing else "hybrid",
+        "routeReason": routing.reason if routing else "",
+        "conversationId": conversation_id,
+        **citation_extras,   # Task 10: 空 dict（开关关）时不新增字段，零破坏
+    }
+
+    # 单轮 或 多轮 且 高置信(confidence==high) 才写；黑名单/证据有限/不足不写
+    # 注：多轮指代问题(search_q!=nq)会写但读时按 search_q==nq 过滤(避免跨对话脏命中)
+    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
+        # L2: MySQL 持久化（先写，保证数据不丢）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_set_mysql
+                await cache_set_mysql(db, model_type, nq, query, result, tenant_id=tenant)
+            except Exception as e:
+                degraded("qa_cache_mysql_set", e)
+        # L1: Redis 热点（后写，MySQL 已成功）
+        try:
+            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), result, settings.QA_CACHE_TTL)
+        except Exception as e:
+            degraded("qa_cache_set", e)
+        # L1.5: 语义缓存索引（异步，不阻塞）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_set
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
+            except Exception as e:
+                degraded("semantic_cache_set", e)
+    try:
+        from app.core import metrics
+        metrics.QA_TOTAL.labels(model_type or settings.LLM_PROVIDER, "false").inc()
+        metrics.cache_hit_inc("llm")
+    except Exception:
+        pass
+    # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
+    try:
+        import asyncio
+        from app.services.cost_tracker_service import record_token_usage
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(ans) // 2))
+    except Exception:
+        pass
+    # 在线质量评测采样（异步跑 LLM Judge，不阻塞响应；评测趋势数据来源）
+    try:
+        import asyncio
+        from app.services.online_eval_service import should_sample, eval_quality
+        if should_sample():
+            asyncio.ensure_future(eval_quality(db, query, ans, contexts, model_type))
+    except Exception:
+        pass
+    # 证据补全：medium/refused 自动收集（bg task，独立 session，不阻塞响应）
+    if settings.EVIDENCE_GAP_AUTO_COLLECT and confidence in ("medium", "refused"):
+        try:
+            from app.services import evidence_gap_service
+            _bg_tasks.add(asyncio.create_task(evidence_gap_service.collect(
+                nq, ans, confidence, crag_grade, crag_action, "auto", tenant,
+            )))
+        except Exception:
+            pass
+    return result
+
+
+async def _stream_agent(db, query, model_type, conversation_id, username, tenant, t0):
+    """S2: Agent 流式（meta→tool_step×N→token→done）。run_agent on_step→asyncio.Queue 桥接。
+    单轮缓存（Redis L1 + MySQL qa_cache L2，复用三级缓存）：命中跳过 agent；done 后写。"""
+    import asyncio
+    from app.services.agent_runtime import run_agent
+    from app.services.persona_store import get_persona
+
+    is_single = not conversation_id
+    nq = term_service.normalize(query)
+    key = _cache_key(model_type, nq, tenant)
+    _p = model_type or settings.LLM_PROVIDER
+
+    # 单轮查缓存（L1 Redis → L2 MySQL），命中→流式返缓存答案（不跑 agent，秒级）
+    if is_single:
+        cached = None
+        try:
+            cached = await redis_client.cache_get_json(key)
+        except Exception as e:
+            degraded("agent_cache_get", e)
+        if not cached and getattr(settings, "CACHE_PERSIST_ENABLE", False):
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
+            except Exception as e:
+                degraded("agent_cache_mysql", e)
+        if (
+            cached
+            and cached.get("answer")
+            and await _cache_knowledge_valid(db, cached, tenant)
+        ):
+            conv = await conversation_service.create_conversation(db, username, query)
+            cid = conv.id
+            try:
+                await conversation_service.save_message(db, cid, "user", query)
+                await conversation_service.save_message(db, cid, "assistant", cached["answer"])
+            except Exception as e:
+                degraded("agent_cache_conv", e)
+            yield {"type": "meta", "sources": cached.get("retrievalSource", []),
+                   "conversationId": cid, "agentMode": True, "cached": True,
+                   "cacheLayer": cached.get("cacheLayer", "redis")}
+            yield {"type": "token", "content": cached["answer"]}
+            try:
+                metrics.QA_TOTAL.labels(_p, "true").inc()
+                metrics.cache_hit_inc(cached.get("cacheLayer", "redis") or "redis")
+            except Exception:
+                pass
+            yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                   "conversationId": cid, "agentMode": True, "cached": True,
+                   "cacheLayer": cached.get("cacheLayer", "redis")}
+            return
+
+    # miss → 跑 agent
+    if not conversation_id:
+        conv = await conversation_service.create_conversation(db, username, query)
+        conversation_id = conv.id
+    yield {"type": "meta", "sources": [], "conversationId": conversation_id, "agentMode": True}
+
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def _run():
+        try:
+            qa_persona = await get_persona("qa")
+            res = await run_agent(
+                db, qa_persona, query, model_type,
+                ctx={"username": username, "tenant": tenant},
+                on_step=lambda s: queue.put_nowait({"type": "tool_step", "step": s}),
+            )
+            await queue.put({"type": "_result", "result": res})
+        except Exception as e:
+            degraded("qa_agent_stream", e)
+            await queue.put({"type": "_error", "error": f"{type(e).__name__}: {e}"})
+
+    task = asyncio.create_task(_run())
+    try:
+        while True:
+            item = await queue.get()
+            t = item["type"]
+            if t == "tool_step":
+                yield item
+            elif t == "_result":
+                res = item["result"]
+                ans = res.answer if isinstance(res.answer, str) else str(res.answer)
+                # 单轮 + 非降级 → 写缓存（agent 多轮验证质量高，默认 high；与普通问答共享 key）
+                if is_single and not res.degraded:
+                    cache_result = {
+                        "answer": ans, "retrievalSource": [], "confidence": "high",
+                        "responseTime": round(time.time() - t0, 3), "hallucinationRate": 0.0,
+                        "cached": True, "cacheLayer": "redis", "agentMode": True,
+                    }
+                    if getattr(settings, "CACHE_PERSIST_ENABLE", False):
+                        try:
+                            from app.services.cache_persist import cache_set_mysql
+                            await cache_set_mysql(db, model_type, nq, query, cache_result, tenant_id=tenant)
+                        except Exception as e:
+                            degraded("agent_cache_mysql_set", e)
+                    try:
+                        await redis_client.cache_set_json(key, cache_result, settings.QA_CACHE_TTL)
+                    except Exception as e:
+                        degraded("agent_cache_set", e)
+                yield {"type": "token", "content": ans}
+                try:
+                    await conversation_service.save_message(db, conversation_id, "user", query)
+                    await conversation_service.save_message(db, conversation_id, "assistant", ans)
+                except Exception as e:
+                    degraded("agent_conv_save", e)
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "conversationId": conversation_id, "agentMode": True,
+                       "iterations": res.iterations, "degraded": res.degraded,
+                       "toolsUsed": res.tools_used, "cached": False}
+                break
+            else:  # _error
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "conversationId": conversation_id, "agentMode": True,
+                       "degraded": True, "error": item["error"]}
+                break
+    finally:
+        await task
+
+
+async def stream_answer(
+    db: AsyncSession, query: str, model_type: str | None = None,
+    topk: int = 5, conversation_id: str | None = None, username: str = "",
+    tenant: str = "default", regen: bool = False, agent_mode: bool = False,
+    user_dept: str | None = None, user_role: str | None = None,
+):
+    """流式问答：单轮查热点缓存(命中则快流不调LLM) → 否则 meta/token/done 三段。
+
+    agent_mode=True（S2）：走通用 Agent 引擎(QA_PERSONA)，流式推 meta→tool_step×N→token→done。
+    """
+    t0 = time.time()
+    nq = term_service.normalize(query)
+    _p = model_type or settings.LLM_PROVIDER
+    safety.guard_query(query)  # 入站 prompt injection 告警（D4）
+    if agent_mode:
+        async for ev in _stream_agent(db, query, model_type, conversation_id, username, tenant, t0):
+            yield ev
+        return
+    is_single = not conversation_id  # 仅单轮查/写缓存（多轮上下文变化不缓存）
+
+    # Self-RAG：非运维问题跳过检索直接拒答
+    if settings.SELF_RAG_ENABLE:
+        from app.services import self_rag as self_rag_svc
+        if not await self_rag_svc.need_retrieve(query, model_type):
+            yield {"type": "meta", "sources": [], "conversationId": conversation_id or ""}
+            yield {"type": "token", "content": self_rag_svc.SKIP_ANSWER}
+            yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                   "confidence": "refused", "cragAction": "self_rag_skip",
+                   "conversationId": conversation_id or "", "cached": False}
+            return
+
+    # 0) 单轮三级缓存：Redis(L1) → MySQL(L2) → LLM(L3)
+    #    regen=True（重新生成）跳过缓存读，强制重走 LLM
+    cache_layer = "llm"
+    if is_single and not regen and not await _is_blacklisted(nq):
+        # L1: Redis 热点
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+        except Exception as e:
+            degraded("qa_cache_get", e)
+            cached = None
+        if cached and await _cache_knowledge_valid(db, cached, tenant):
+            conv = await conversation_service.create_conversation(db, username, query)
+            cid = conv.id
+            try:
+                await conversation_service.save_message(db, cid, "user", query)
+                await conversation_service.save_message(db, cid, "assistant", cached.get("answer", ""))
+            except Exception as e:
+                degraded("conv_save", e)
+            yield {"type": "meta", "sources": cached.get("retrievalSource", []), "conversationId": cid}
+            yield {"type": "token", "content": cached.get("answer", "")}
+            try:
+                from app.core import metrics
+                metrics.QA_TOTAL.labels(_p, "true").inc()
+                metrics.cache_hit_inc("redis")
+            except Exception:
+                pass
+            yield {
+                "type": "done", "responseTime": round(time.time() - t0, 3),
+                "hallucinationRate": cached.get("hallucinationRate", 0.0),
+                "conversationId": cid, "cached": True, "cacheLayer": "redis",
+                "route": cached.get("route", "hybrid"),
+            }
+            return
+
+        # L2: MySQL 二级缓存（精确持久，Redis 过期/evict 时兜底；优先于模糊语义匹配）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_get_mysql
+                mysql_cached = await cache_get_mysql(db, model_type, nq, tenant_id=tenant)
+                if mysql_cached and await _cache_knowledge_valid(db, mysql_cached, tenant):
+                    conv = await conversation_service.create_conversation(db, username, query)
+                    cid = conv.id
+                    try:
+                        await conversation_service.save_message(db, cid, "user", query)
+                        await conversation_service.save_message(db, cid, "assistant", mysql_cached.get("answer", ""))
+                    except Exception as e:
+                        degraded("conv_save", e)
+                    yield {"type": "meta", "sources": mysql_cached.get("retrievalSource", []), "conversationId": cid}
+                    yield {"type": "token", "content": mysql_cached.get("answer", "")}
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(_p, "true").inc()
+                        metrics.cache_hit_inc("mysql")
+                    except Exception:
+                        pass
+                    yield {
+                        "type": "done", "responseTime": round(time.time() - t0, 3),
+                        "hallucinationRate": mysql_cached.get("hallucinationRate", 0.0),
+                        "conversationId": cid, "cached": True, "cacheLayer": "mysql",
+                        "route": mysql_cached.get("route", "hybrid"),
+                    }
+                    return
+            except Exception as e:
+                degraded("qa_cache_mysql_stream", e)
+
+        # L1.5: 语义缓存（模糊相似，精确持久 miss 后兜底）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_get
+                sc_data, sc_type, sc_sim = await semantic_cache_get(model_type, nq, tenant_id=tenant)
+                if (
+                    sc_data
+                    and sc_type in ("semantic_high", "semantic_medium")
+                    and await _cache_knowledge_valid(db, sc_data, tenant)
+                ):
+                    conv = await conversation_service.create_conversation(db, username, query)
+                    cid = conv.id
+                    try:
+                        await conversation_service.save_message(db, cid, "user", query)
+                        await conversation_service.save_message(db, cid, "assistant", sc_data.get("answer", ""))
+                    except Exception as e:
+                        degraded("conv_save", e)
+                    yield {"type": "meta", "sources": sc_data.get("retrievalSource", []), "conversationId": cid}
+                    yield {"type": "token", "content": sc_data.get("answer", "")}
+                    try:
+                        from app.core import metrics
+                        metrics.QA_TOTAL.labels(_p, "true").inc()
+                        metrics.cache_hit_inc("semantic")
+                    except Exception:
+                        pass
+                    yield {
+                        "type": "done", "responseTime": round(time.time() - t0, 3),
+                        "hallucinationRate": sc_data.get("hallucinationRate", 0.0),
+                        "conversationId": cid, "cached": True,
+                        "cacheLayer": sc_type,
+                        "semanticSimilarity": round(sc_sim, 4),
+                        "route": sc_data.get("route", "hybrid"),
+                    }
+                    return
+            except Exception as e:
+                degraded("semantic_cache_get_stream", e)
+
+    # 多轮历史 + 指代消解
+    history: list[dict] = []
+    if conversation_id:
+        history = await conversation_service.get_messages(db, conversation_id, _HISTORY_LIMIT)
+    search_q = await _search_query_for_retrieve(db, query, nq, conversation_id, history, model_type)
+
+    # 多轮且 query 完整(search_q==nq) → 也查 Redis 热点（流式，存消息接续对话）
+    if conversation_id and search_q == nq and not regen and not await _is_blacklisted(nq):
+        try:
+            cached = await redis_client.cache_get_json(_cache_key(model_type, nq, tenant))
+            if cached and await _cache_knowledge_valid(db, cached, tenant):
+                try:
+                    await conversation_service.save_message(db, conversation_id, "user", query)
+                    await conversation_service.save_message(db, conversation_id, "assistant", cached.get("answer", ""))
+                except Exception as e:
+                    degraded("conv_save", e)
+                yield {"type": "meta", "sources": cached.get("retrievalSource", []), "conversationId": conversation_id}
+                yield {"type": "token", "content": cached.get("answer", "")}
+                try:
+                    from app.core import metrics
+                    metrics.QA_TOTAL.labels(_p, "true").inc()
+                    metrics.cache_hit_inc("redis")
+                except Exception:
+                    pass
+                yield {"type": "done", "responseTime": round(time.time() - t0, 3),
+                       "hallucinationRate": cached.get("hallucinationRate", 0.0),
+                       "conversationId": conversation_id, "cached": True, "cacheLayer": "redis",
+                       "route": cached.get("route", "hybrid")}
+                return
+        except Exception as e:
+            degraded("qa_cache_get_multi_stream", e)
+
+    # 智能路由：根据查询特征选择最优检索路径（Phase A）
+    routing = None
+    if settings.ROUTING_ENABLE:
+        try:
+            from app.routing.routing_service import route_query
+            routing = route_query(search_q)
+        except Exception as e:
+            degraded("routing_dispatch", e)
+
+    contexts = await retrieval_service.mixed_search(
+        db, search_q, topk, tenant=tenant, routing_decision=routing,
+        user_dept=user_dept, user_role=user_role,
+    )
+    if not contexts:
+        yield {"type": "done", "content": "根据现有资料无法确认该问题，请先上传并解析相关运维文档后重试。"}
+        return
+
+    # Corrective RAG：分级 + 纠错闭环
+    contexts, confidence, crag_action, crag_grade = await _crag_correct(
+        db, nq, contexts, model_type, topk, tenant
+    )
+
+    # GraphRAG
+    graph: list[str] = []
+    if settings.KG_RAG_ENABLE:
+        try:
+            graph = await kg_service.graph_context(nq, db=db, tenant=tenant)
+        except Exception as e:
+            degraded("kg_graph_context", e)
+            graph = []
+    messages = prompt_templates.build_messages_with_history(nq, contexts, history, graph, confidence)
+
+    # 流式前先建会话，确保 conversationId 可随 meta 下发
+    if is_single:
+        conv = await conversation_service.create_conversation(db, username, query)
+        conversation_id = conv.id
+
+    # 1) meta：引用来源 + 会话 ID
+    yield {
+        "type": "meta",
+        "sources": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
+        "conversationId": conversation_id,
+    }
+
+    # 2) 逐 token 流式（打字机）+ LLM 调用埋点
+    parts: list[str] = []
+    _llm0 = time.time()
+    async for token in get_llm_provider(model_type).stream(messages, temperature=config_service.rt_temperature()):
+        parts.append(token)
+        yield {"type": "token", "content": token}
+    try:
+        from app.core import metrics
+        metrics.LLM_CALLS.labels(_p).inc()
+        metrics.LLM_LATENCY.labels(_p).observe(time.time() - _llm0)
+    except Exception:
+        pass
+
+    # 3) 持久化完整答案
+    full = "".join(parts)
+    # 证据溯源：补标（done 段下发 annotatedAnswer，前端替换渲染出角标；持久化/缓存均用补标后）
+    if getattr(settings, "CITATION_AUTO_ENABLE", True):
+        annotated, _trace = await citation.auto_cite(full, contexts)
+    else:
+        annotated, _trace = full, citation.evidence_trace(full)
+    # 成本追踪（记录 token 用量 → 成本报告数据来源；估算 input/output token）
+    try:
+        import asyncio
+        from app.services.cost_tracker_service import record_token_usage
+        asyncio.ensure_future(record_token_usage(db, username, tenant, model_type or settings.LLM_PROVIDER, len(str(messages)) // 2, len(annotated) // 2))
+    except Exception:
+        pass
+    # 在线质量评测采样（异步跑 LLM Judge，不阻塞流式；评测趋势数据来源）
+    try:
+        import asyncio
+        from app.services.online_eval_service import should_sample, eval_quality
+        if should_sample():
+            asyncio.ensure_future(eval_quality(db, query, annotated, contexts, model_type))
+    except Exception:
+        pass
+    try:
+        await conversation_service.save_message(db, conversation_id, "user", query)
+        await conversation_service.save_message(db, conversation_id, "assistant", annotated)
+    except Exception as e:
+        degraded("conv_save", e)
+
+    # 4) 单轮 Write-Through 双写缓存（MySQL → Redis）
+    halluc = citation.estimate_hallucination(annotated, len(contexts))
+    try:
+        from app.core import metrics
+        metrics.UNGROUNDED_RATIO.observe(halluc)   # 启发式未引用率(廉价代理)；HALLUC 留给 LLM-judge 真值
+    except Exception:
+        pass
+    cache_data = {
+        "answer": annotated,
+        "retrievalSource": [{
+            "docId": c.get("docId", ""), "docName": c.get("docName", ""),
+            "docType": c.get("docType", ""), "chunkIdx": c.get("chunkIdx"),
+            "chunk": c.get("chunk", ""), "score": c.get("score", 0.0),
+            "sources": c.get("sources", []),
+        } for c in contexts],
+        "evidenceTrace": _trace,
+        "responseTime": round(time.time() - t0, 3),
+        "hallucinationRate": halluc,
+        "cached": False,
+        "cacheLayer": "llm",
+        "conversationId": conversation_id,
+    }
+    # 单轮 或 多轮 且 高置信 才写；黑名单/证据有限/不足不写
+    if (is_single or conversation_id) and confidence == "high" and not await _is_blacklisted(nq):
+        # L2: MySQL 持久化（先写）
+        if settings.CACHE_PERSIST_ENABLE:
+            try:
+                from app.services.cache_persist import cache_set_mysql
+                await cache_set_mysql(db, model_type, nq, query, cache_data, tenant_id=tenant)
+            except Exception as e:
+                degraded("qa_cache_mysql_set_stream", e)
+        # L1: Redis 热点（后写）
+        try:
+            await redis_client.cache_set_json(_cache_key(model_type, nq, tenant), cache_data, settings.QA_CACHE_TTL)
+        except Exception as e:
+            degraded("qa_cache_set", e)
+        # L1.5: 语义缓存索引（向量化入库，供后续相似查询命中）
+        if getattr(settings, "SEMANTIC_CACHE_ENABLE", False):
+            try:
+                from app.rag.semantic_cache import semantic_cache_set
+                await semantic_cache_set(model_type, nq, _cache_key(model_type, nq, tenant), tenant_id=tenant)
+            except Exception as e:
+                degraded("semantic_cache_set_stream", e)
+    try:
+        from app.core import metrics
+        metrics.QA_TOTAL.labels(_p, "false").inc()
+        metrics.cache_hit_inc("llm")
+    except Exception:
+        pass
+    # 证据补全：medium/refused 自动收集（bg task，独立 session，不阻塞流式）
+    if settings.EVIDENCE_GAP_AUTO_COLLECT and confidence in ("medium", "refused"):
+        try:
+            from app.services import evidence_gap_service
+            _bg_tasks.add(asyncio.create_task(evidence_gap_service.collect(
+                nq, annotated, confidence, crag_grade, crag_action, "auto", tenant,
+            )))
+        except Exception:
+            pass
+    yield {
+        "type": "done",
+        "responseTime": round(time.time() - t0, 3),
+        "hallucinationRate": halluc,
+        "modelType": _p,  # 实际调用的 LLM（前端据此展示 🤖 模型 badge；缓存命中时不带此字段）
+        "graphCount": len(graph),
+        "highRisk": safety.extract_high_risk(annotated),
+        "annotatedAnswer": annotated,        # 补标后全文，前端替换渲染出 [n] 角标上标
+        "evidenceTrace": _trace,             # 句级溯源
+        "confidence": confidence,
+        "cragAction": crag_action,
+        "cragGrade": crag_grade,
+        "conversationId": conversation_id,
+        "cached": False,
+        "cacheLayer": "llm",
+        "route": routing.route if routing else "hybrid",
+        "routeReason": routing.reason if routing else "",
+    }
+
+
+async def generate_related(
+    query: str, answer: str = "", model_type: str | None = None
+) -> list[str]:
+    """基于当前问答，LLM 生成 3 个相关追问问题（引导深挖）。
+
+    独立接口：避免塞进流式 done 拖慢首字延迟，由前端答案渲染后异步拉取。
+    """
+    provider = get_llm_provider(model_type)
+    prompt = (
+        "基于以下供应链物流问答，生成 3 个用户可能继续追问的相关问题。\n"
+        "要求：与原问题相关但换角度或更深一层；简短具体（10-25 字）；聚焦仓储/干线/末端/冷链履约。\n"
+        "只输出 JSON 字符串数组，如 [\"问题1\",\"问题2\",\"问题3\"]，不要任何解释或代码块。\n\n"
+        f"【原问题】{query}\n【答案摘要】{(answer or '')[:500]}"
+    )
+    try:
+        ans = await provider.chat(
+            [{"role": "user", "content": prompt}], temperature=0.5, max_tokens=400
+        )
+    except Exception as e:
+        degraded("related_gen", e)
+        return []
+    m = re.search(r"\[.*\]", ans or "", re.S)
+    if not m:
+        return []
+    try:
+        arr = json.loads(m.group(0))
+    except Exception:
+        return []
+    return [str(x).strip()[:60] for x in arr if str(x).strip()][:3]

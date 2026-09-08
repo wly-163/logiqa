@@ -1,0 +1,59 @@
+# ===== S1 地基 + 骨架 =====
+fastapi>=0.115,<0.116
+uvicorn[standard]>=0.34,<0.35
+pydantic>=2.9,<3
+pydantic-settings>=2.5,<3
+python-dotenv>=1.0,<2
+
+# ===== S2 认证（bcrypt 直连 + PyJWT，规避 passlib/bcrypt4.x 兼容坑）=====
+SQLAlchemy[asyncio]>=2.0,<3
+aiomysql>=0.2,<0.3
+aiosqlite>=0.20,<1       # 持久化任务/事件中心的轻量 SQLite 集成测试
+bcrypt>=4.0,<5
+PyJWT>=2.8,<3
+email-validator>=2.0
+
+# ===== S3 文档上传（form-data 需要 python-multipart）=====
+minio>=7.2,<8
+python-multipart>=0.0.9
+
+# ===== S4 文档解析与分块 =====
+pdfplumber>=0.11
+pypdf>=4
+python-docx>=1.1
+PyMuPDF>=1.24
+openpyxl>=3.1            # Excel 台账/定值单解析（表格转 markdown，保留结构）
+rapidocr-onnxruntime>=1.2   # PaddleOCR PP-OCR 模型 + onnxruntime 后端（规避 paddle3.3 Win onednn bug）
+# 原生 paddleocr/paddlepaddle 在 Linux 生产环境可启用，见 services/parse_service.py 注释
+
+# ===== S5 向量化 =====
+openai>=2.0
+pymilvus>=2.4,<2.5   # 2.4 支持 py3.13（2.3 的 grpcio 在 py3.13 Win 无预编译 wheel）
+setuptools<81         # pymilvus 用 pkg_resources，setuptools>=81 已移除该模块
+
+# ===== S6 混合检索 =====
+rank-bm25>=0.2
+jieba>=0.42
+
+# ===== 优化阶段：缓存/日志/测试/限流/监控/本地embedding =====
+redis>=5.0          # 异步热点问答缓存
+loguru>=0.7         # 结构化日志
+pytest>=8.0         # 测试
+pytest-asyncio>=0.24 # 异步队列/事件中心集成测试
+aiosqlite>=0.20      # CI 使用 SQLite 验证持久化任务与 Outbox
+httpx>=0.27         # 测试 / 压测
+slowapi>=0.1        # 限流(Q3)
+prometheus-client>=0.20  # Prometheus 指标(Q9)
+sentence-transformers>=3.0  # 本地 bge embedding(P1)
+
+# ===== 知识图谱：Neo4j 图数据库（设备-故障-处置 多跳推理）=====
+neo4j>=5.23            # AsyncGraphDatabase 异步驱动（bolt 协议）
+
+# ===== N4 LLM 全链路可观测性 =====
+opentelemetry-sdk>=1.28,<2          # OTel 核心 SDK（TracerProvider/SpanExporter）
+opentelemetry-exporter-otlp>=1.28,<2 # OTLP HTTP 导出器（→ Langfuse）
+
+# ===== N2 MCP 工具总线 =====
+mcp>=1.0,<2                          # MCP Python SDK（server + client）
+
+# ===== 后续切片按需追加（暂不安装）=====

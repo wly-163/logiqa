@@ -1,0 +1,22 @@
+name: 功能建议
+description: 新能力或体验改进
+title: "[feat] "
+labels: ["enhancement"]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: 要解决什么问题
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 建议做法
+    validations:
+      required: true
+  - type: textarea
+    id: extra
+    attributes:
+      label: 其它说明
+      placeholder: 替代方案、影响范围、是否愿意提交 PR

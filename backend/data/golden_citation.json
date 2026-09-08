@@ -1,0 +1,45 @@
+[
+  {
+    "id": "single-single",
+    "category": "单句单证据",
+    "query": "冷链断链温度阈值是多少",
+    "answer": "冷链断链判定阈值为连续15分钟温区超出设定范围±2℃[1]。",
+    "contexts": [{"chunkId": "c1", "chunk": "冷链运输断链判定标准：连续15分钟温区超出设定范围±2℃即视为断链。", "docName": "冷链作业规程", "page_num": 8}],
+    "expect_refs": [1],
+    "expect_support_ratio": 1.0
+  },
+  {
+    "id": "single-multi",
+    "category": "单句多证据",
+    "query": "波次拣选完成后出库复核顺序是什么",
+    "answer": "波次拣选完成后须先按SKU复核数量[1]，再复核批次与温区标签[2]，最后扫码绑定运单后方可装车[3]。",
+    "contexts": [
+      {"chunkId": "c1", "chunk": "波次拣选结束后，拣货员须逐SKU核对拣货数量与作业单一致。", "docName": "波次拣选作业规程", "page_num": 12},
+      {"chunkId": "c2", "chunk": "复核环节须核对批次号、效期及冷链温区标签，不符不得放行。", "docName": "波次拣选作业规程", "page_num": 13},
+      {"chunkId": "c3", "chunk": "复核通过后扫描运单号绑定出库，未绑定运单禁止装车发运。", "docName": "出库复核规程", "page_num": 5}
+    ],
+    "expect_refs": [1, 2, 3],
+    "expect_support_ratio": 1.0
+  },
+  {
+    "id": "distract",
+    "category": "干扰样本(主题相似语义相反)",
+    "query": "危险品能否与普通货混装运输",
+    "answer": "危险品严禁与普通货混装运输[1]。",
+    "contexts": [{"chunkId": "c1", "chunk": "危险品与普通货可同车混装，须做好物理隔离即可。", "docName": "错误干扰文档", "page_num": 1}],
+    "expect_refs": [],
+    "expect_contradict_drop": true
+  },
+  {
+    "id": "high-risk",
+    "category": "高风险样本(数字/否定/时限)",
+    "query": "危险品入库验收时限与混装禁止规定",
+    "answer": "危险品入库须在到货后2小时内完成验收[1]，未验收不得上架；严禁与普通货混装存放[2]。",
+    "contexts": [
+      {"chunkId": "c1", "chunk": "危险品到货后须在2小时内完成验收，超时须隔离并上报。", "docName": "危险品入库验收规程", "page_num": 6},
+      {"chunkId": "c2", "chunk": "危险品必须专区专库存放，严禁与普通货混装、混存、混运。", "docName": "安全规程", "page_num": 18}
+    ],
+    "expect_refs": [1, 2],
+    "expect_support_ratio": 1.0
+  }
+]

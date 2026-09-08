@@ -1,0 +1,15 @@
+{
+  "required_fields": [
+    {"id": "REQ_TASK", "field": "task", "label": "任务", "severity": "critical", "suggestion": "补充作业任务"},
+    {"id": "REQ_DISPATCH", "field": "dispatch_no", "label": "调度单号", "severity": "major", "suggestion": "补充调度/运单号"},
+    {"id": "REQ_OPERATOR", "field": "operator", "label": "作业人", "severity": "major", "suggestion": "补充作业人/负责人"}
+  ],
+  "sequences": [
+    {"id": "SEQ_001", "before": "发运", "after": "复核", "severity": "critical", "msg": "发运出现在复核之前", "suggestion": "应先复核单据与实物一致后再发运"},
+    {"id": "SEQ_002", "before": "装车", "after": "复核", "severity": "critical", "msg": "装车出现在复核之前", "suggestion": "应先复核SKU/数量/批次后再装车"},
+    {"id": "SEQ_003", "before": "安装", "after": "验货", "severity": "major", "msg": "安装出现在验货之前", "suggestion": "送装一体应先验货确认完好后再安装"}
+  ],
+  "danger_keywords": ["危险品", "冷链", "高空", "叉车", "AGV", "登高", "危化品", "超载"],
+  "dispatch_pattern": "^[A-Za-z0-9\\-]{4,}$",
+  "blocklist": ["口头指令出库", "无单发货", "约时未确认即配送"]
+}

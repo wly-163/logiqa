@@ -1,0 +1,184 @@
+# 仓储物流 RAG 告警规则（Grafana 13 结构：folder + relativeTimeRange 必填）
+# 数据源 uid=prometheus；触发 → 后端告警Webhook → 落操作日志(operate_type=告警)
+apiVersion: 1
+
+groups:
+  - orgId: 1
+    name: logiqa-alerts
+    folder: 供应链物流 RAG
+    interval: 30s
+    rules:
+      # 1) 基础组件下线（MySQL/MinIO/Milvus/Redis 任一探活失败）
+      - uid: logiqa-component-down
+        title: 基础组件下线
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: max(logiqa_component_health) by (component) == 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: NoData
+        execErrState: Error
+        for: 1m
+        annotations:
+          summary: "组件 {{ $labels.component }} 下线"
+          description: "基础组件探活返回 0，可能影响问答/检索/知识库"
+        labels:
+          severity: critical
+        isPaused: false
+
+      # 2) 静默降级激增（5分钟内降级兜底 >10 次，多处失败被吞）
+      - uid: logiqa-degraded-spike
+        title: 静默降级激增
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(logiqa_degraded_total[5m])) > 10
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "5 分钟内静默降级 {{ $value }} 次"
+          description: "多个兜底分支被触发，可能 Neo4j/rerank/缓存/云接口 等组件异常"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 3) 答案幻觉率 P95 超阈（答案可信度下降）
+      - uid: logiqa-hallucination-high
+        title: 答案幻觉率P95超阈
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: histogram_quantile(0.95, sum(rate(logiqa_hallucination_rate_bucket[5m])) by (le)) > 0.5
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 5m
+        annotations:
+          summary: "答案幻觉率 P95 = {{ $value }}（>0.5）"
+          description: "检索证据支撑不足，建议排查检索召回/rerank/CRAG 配置"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 4) 安全事件命中（prompt injection 攻击）
+      - uid: logiqa-safety-injection
+        title: Prompt Injection 命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(logiqa_safety_block_total[5m])) > 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "5 分钟内 prompt injection 命中 {{ $value }} 次"
+          description: "检测到越狱/注入尝试，关注是否有滥用"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 5) 仓储物流危险作业关键词命中（危险品/冷链/叉车AGV/高空 等 critical，任意命中即告警）
+      - uid: logiqa-hazard-critical
+        title: 仓储物流危险作业(critical)关键词命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(logiqa_safety_keyword_total{category=~"危险品作业|冷链断链|叉车AGV|高空送装"}[5m])) > 0
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 0s
+        annotations:
+          summary: "5 分钟内 critical 类危险作业命中 {{ $value }} 次"
+          description: "检测到危险品/冷链断链/叉车AGV/高空送装等关键危险作业关键词，需关注查询者意图"
+        labels:
+          severity: critical
+        isPaused: false
+
+      # 6) 仓储物流危险作业关键词命中（误操作/作业单合规/安全措施 等 warning，>=3 次告警）
+      - uid: logiqa-hazard-warning
+        title: 仓储物流危险作业(warning)关键词命中
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(logiqa_safety_keyword_total{category=~"误操作|作业单合规|安全措施"}[5m])) >= 3
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 2m
+        annotations:
+          summary: "5 分钟内 warning 类危险作业命中 {{ $value }} 次"
+          description: "检测到误操作/作业单合规/安全措施违规等关键词，可能反映作业风险意识不足"
+        labels:
+          severity: warning
+        isPaused: false
+
+      # 7) 仓配异常关键词激增（仓配工况恶化信号，>=5 次）
+      - uid: logiqa-hazard-device
+        title: 仓配异常关键词激增
+        condition: A
+        data:
+          - refId: A
+            relativeTimeRange:
+              from: 600
+              to: 0
+            datasourceUid: prometheus
+            model:
+              expr: sum(increase(logiqa_safety_keyword_total{category="仓配异常"}[10m])) >= 5
+              instant: true
+              range: false
+              refId: A
+        noDataState: OK
+        execErrState: Error
+        for: 3m
+        annotations:
+          summary: "10 分钟内仓配异常关键词命中 {{ $value }} 次"
+          description: "仓配异常类查询激增可能反映集中爆仓/断链/延误等问题"
+        labels:
+          severity: info
+        isPaused: false

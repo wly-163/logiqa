@@ -1,0 +1,194 @@
+"""知识自进化闭环测试。"""
+import math
+import pytest
+from sqlalchemy import select
+
+from app.models.knowledge_evolution import KnowledgeEvolutionDraft
+from app.services.knowledge_evolution_service import cluster
+
+
+def _v(x):
+    n = math.sqrt(sum(i * i for i in x))
+    return [i / n for i in x]
+
+
+# ===== T1: 模型 CRUD =====
+@pytest.mark.asyncio
+async def test_draft_create_and_read(test_db):
+    d = KnowledgeEvolutionDraft(
+        id="d1", tenant_id="default", cluster_id="c1",
+        representative_query="自动导引车库温高怎么处理",
+        member_queries_json='["自动导引车库温高怎么处理"]',
+    )
+    test_db.add(d)
+    await test_db.commit()
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d1")
+    )).scalar_one()
+    assert row.status == "draft"
+    assert row.quality_score == 0.6
+    assert row.cluster_id == "c1"
+
+
+# ===== T3: 聚类 =====
+def test_cluster_groups_similar():
+    items = [
+        {"query": "库温高", "vec": _v([1, 0.01])},
+        {"query": "库温报警", "vec": _v([1, 0.02])},
+        {"query": "库温高", "vec": _v([1, 0.015])},
+        {"query": "冷链断链", "vec": _v([0.01, 1])},
+    ]
+    clusters = cluster(items, threshold=0.95, min_size=2)
+    assert len(clusters) == 1
+    assert clusters[0]["representative_query"] in ("库温高", "库温报警")
+
+
+def test_cluster_filters_small():
+    assert cluster([{"query": "x", "vec": [1, 0]}], threshold=0.5, min_size=3) == []
+
+
+# ===== T4: 盲区判定 =====
+@pytest.mark.asyncio
+async def test_identify_blind_spot_is_blind(monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_top1(db, q, tenant, top_k=1):
+        return [{"score": 0.3, "doc_id": "x"}]
+    monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
+    c = {"representative_query": "q", "members": [{"query": "q"}]}
+    evi = await ev._identify_blind_spot(None, c, "default")
+    assert evi is not None and evi["top1_score"] == 0.3
+
+
+@pytest.mark.asyncio
+async def test_identify_blind_spot_not_blind(monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_top1(db, q, tenant, top_k=1):
+        return [{"score": 0.8, "doc_id": "x"}]
+    monkeypatch.setattr(ev, "_retrieve_top1", fake_top1)
+    c = {"representative_query": "q", "members": [{"query": "q"}]}
+    assert await ev._identify_blind_spot(None, c, "default") is None
+
+
+# ===== T5: 草稿生成（mock LLM）=====
+@pytest.mark.asyncio
+async def test_generate_draft(monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_llm(prompt, model_type):
+        return '{"title":"t","content":"c","source_refs":[]}'
+    async def fake_docs(db, q, tenant, top_k=3):
+        return []
+    monkeypatch.setattr(ev, "_call_llm_json", fake_llm)
+    monkeypatch.setattr(ev, "_recent_standards", fake_docs)
+    c = {"representative_query": "q", "members": [{"query": "q"}, {"query": "q2"}]}
+    draft = await ev._generate_draft(None, c, {"top1_score": 0.3}, "default", None)
+    assert draft["draft_title"] == "t" and draft["draft_content"] == "c"
+
+
+# ===== T6: run_scan 编排（mock 管道，验证落库）=====
+@pytest.mark.asyncio
+async def test_run_scan_persists_drafts(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_extract(db, tenant, since):
+        return ["库温高", "库温高1", "库温高2"]
+    async def fake_embed(qs):
+        return [[1.0, 0.0] for _ in qs]
+    def fake_cluster(items, **k):
+        return [{"cluster_id": "c1", "representative_query": "库温高", "members": [{"query": "库温高"}]}]
+    async def fake_identify(db, c, tenant):
+        return {"top1_score": 0.3, "hit_doc_ids": [], "confidence": "medium"}
+    async def fake_gen(db, c, evi, tenant, mt):
+        return {"draft_title": "t", "draft_content": "c", "source_doc_ids": [], "gap_evidence": evi}
+    monkeypatch.setattr(ev, "_extract_dislike", fake_extract)
+    monkeypatch.setattr(ev, "_embed", fake_embed)
+    monkeypatch.setattr(ev, "cluster", fake_cluster)
+    monkeypatch.setattr(ev, "_identify_blind_spot", fake_identify)
+    monkeypatch.setattr(ev, "_generate_draft", fake_gen)
+    res = await ev.run_scan(test_db, "default", since_hours=168, model_type=None)
+    assert res["drafts"] == 1
+    rows = (await test_db.execute(select(KnowledgeEvolutionDraft))).scalars().all()
+    assert len(rows) == 1 and rows[0].status == "draft"
+
+
+# ===== T8: 审核状态流转 =====
+@pytest.mark.asyncio
+async def test_review_approve(test_db):
+    from app.services import knowledge_evolution_service as ev
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d2", tenant_id="default", cluster_id="c1", representative_query="q"))
+    await test_db.commit()
+    await ev.review_draft(test_db, "d2", "default", action="approve", note="ok", reviewer="admin")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d2")
+    )).scalar_one()
+    assert row.status == "approved" and row.reviewer == "admin"
+
+
+@pytest.mark.asyncio
+async def test_review_reject(test_db):
+    from app.services import knowledge_evolution_service as ev
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d3", tenant_id="default", cluster_id="c1", representative_query="q"))
+    await test_db.commit()
+    await ev.review_draft(test_db, "d3", "default", action="reject", note="bad", reviewer="admin")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d3")
+    )).scalar_one()
+    assert row.status == "rejected"
+
+
+# ===== T9: 回流幂等 + 撤回 =====
+@pytest.mark.asyncio
+async def test_reflow_idempotent(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    calls = []
+    async def fake_persist(db, draft):
+        calls.append(draft.id); return "chunk_" + draft.id
+    monkeypatch.setattr(ev, "_persist_chunk_to_kb", fake_persist)
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d4", tenant_id="default", cluster_id="c", representative_query="q", status="approved"))
+    await test_db.commit()
+    d = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d4")
+    )).scalar_one()
+    cid1 = await ev.reflow_to_kb(test_db, d)
+    cid2 = await ev.reflow_to_kb(test_db, d)
+    assert cid1 == cid2 and len(calls) == 1      # 幂等：_persist 只调一次
+    assert d.status == "indexed"
+
+
+@pytest.mark.asyncio
+async def test_withdraw(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    from app.models.chunk import Chunk
+    deleted = []
+    async def fake_del(chunk): deleted.append(chunk.id)
+    monkeypatch.setattr(ev, "_delete_chunk_from_milvus", fake_del)
+    test_db.add(Chunk(id="ck1", doc_id="ai-evo-default", chunk_idx=0, content="c"))
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d5", tenant_id="default", cluster_id="c", representative_query="q",
+        status="indexed", chunk_id="ck1"))
+    await test_db.commit()
+    await ev.withdraw_draft(test_db, "d5", "default")
+    row = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d5")
+    )).scalar_one()
+    assert row.status == "withdrawn"
+    assert deleted == ["ck1"]
+
+
+# ===== T10: 配额阻断 =====
+@pytest.mark.asyncio
+async def test_reflow_quota_blocks(test_db, monkeypatch):
+    from app.services import knowledge_evolution_service as ev
+    async def fake_persist(db, draft): return "chunk"
+    async def fake_weekly(db, tenant): return 20   # 达到默认配额 20
+    monkeypatch.setattr(ev, "_persist_chunk_to_kb", fake_persist)
+    monkeypatch.setattr(ev, "_weekly_indexed_count", fake_weekly)
+    test_db.add(KnowledgeEvolutionDraft(
+        id="d6", tenant_id="default", cluster_id="c", representative_query="q", status="approved"))
+    await test_db.commit()
+    d = (await test_db.execute(
+        select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id == "d6")
+    )).scalar_one()
+    with pytest.raises(ValueError, match="配额"):
+        await ev.reflow_to_kb(test_db, d)

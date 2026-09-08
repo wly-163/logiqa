@@ -1,0 +1,415 @@
+"""FastAPI 应用入口。
+
+运行（项目根目录）：
+    uvicorn app.main:app --reload --host 127.0.0.1 --port 8001 --app-dir backend
+"""
+import asyncio
+from contextlib import asynccontextmanager
+
+from fastapi import FastAPI, Request
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+
+from app.config import settings
+from app.core.obs import degraded
+from app.core.response import BizError, error, success
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # ---- 启动 ----
+    from app.core.logging import setup_logging
+
+    setup_logging()
+
+    # Nacos 配置覆盖（若 CONFIG_SOURCE=nacos，在连接任何服务前拉取覆盖 .env）
+    try:
+        from app.clients.nacos_client import apply_overrides
+        n = await apply_overrides()
+        if n:
+            print(f"[nacos] 已从配置中心覆盖 {n} 个配置项")
+    except Exception as e:
+        print(f"[nacos] 配置覆盖跳过：{e}")
+
+    from app.db.init_db import init_db
+
+    await init_db()  # 建表 + 初始管理员
+
+    from app.clients.minio_client import init_bucket
+
+    try:
+        await init_bucket()  # 确保 MinIO bucket
+    except Exception as e:
+        degraded("minio_init_bucket", e, "MinIO 未启动？跳过 bucket 初始化")
+
+    from app.clients.milvus_client import ensure_collections
+
+    try:
+        ensure_collections()  # 确保 云 + bge 双 collection
+    except Exception as e:
+        degraded("milvus_ensure_collections", e, "Milvus 未启动？跳过 collection 初始化")
+
+    # N1：确保记忆 collection（memory_collection）存在
+    try:
+        from app.clients.milvus_client import ensure_memory_collection
+        ensure_memory_collection()
+        print("[memory] Milvus memory_collection 已就绪")
+    except Exception as e:
+        degraded("milvus_memory_collection", e, "记忆 collection 初始化跳过")
+
+    # 预热本地 bge 模型：首次加载需从 HF 下载(经代理 ~80s)，懒加载会让后端启动后
+    # 首个问答触发该延迟(用户体感“同一问题偶尔 100s”)。提前在启动期加载进内存，
+    # 之后每次 encode 仅 0.02s。离线/无 bge 环境跳过，不阻塞启动。
+    try:
+        from app.providers.embedding.bge_embedding import _get_model
+
+        await asyncio.to_thread(_get_model)
+        print("[bge] 本地模型预热完成")
+    except Exception as e:
+        print(f"[bge] 预热跳过：{e}")
+
+    try:
+        from app.clients import neo4j_client
+        await neo4j_client.ensure_constraint()  # Neo4j 知识图谱索引（未启用则跳过）
+    except Exception as e:
+        degraded("neo4j_init", e, "Neo4j 未启动?跳过")
+
+    # N4：初始化 OpenTelemetry（OTLP → Langfuse）
+    try:
+        from app.core.otel_genai import init_otel
+        init_otel()
+        print(f"[otel] 已初始化，采样率={settings.OTEL_SAMPLE_RATE}，端点={settings.OTEL_ENDPOINT}")
+    except Exception as e:
+        print(f"[otel] 初始化跳过：{e}")
+
+    # N2：加载 MCP registry（发现外部 MCP server → 注册进 ToolRegistry）
+    try:
+        from app.mcp.registry import mcp_registry
+        await mcp_registry.load_from_config()
+        n = mcp_registry.server_count()
+        if n:
+            print(f"[mcp] 已加载 {n} 个外部 MCP server")
+            # 发现外部 MCP 工具 → 注册进 ToolRegistry
+            from app.services.agent_tools import register_mcp_tools
+            tool_count = await register_mcp_tools()
+            if tool_count:
+                print(f"[mcp] 已注册 {tool_count} 个外部 MCP 工具")
+    except Exception as e:
+        print(f"[mcp] registry 加载跳过：{e}")
+
+    # 监控：预注册业务指标 0 值序列(让事件驱动指标事件发生前就“在场”)
+    try:
+        from app.core.metrics import init_metric_series
+        init_metric_series()
+    except Exception as e:
+        print(f"[metrics] 业务指标预注册跳过：{e}")
+    # 运行时配置：从 Redis 载入内存热读缓存(让 /system/config/* 改的 ef/temperature 真生效)
+    try:
+        from app.services import config_service
+        await config_service.load_runtime()
+    except Exception as e:
+        print(f"[config] 运行时配置载入跳过：{e}")
+    # 后台周期刷新组件健康(原仅 GET /health 才更新 → 看板常驻空值)
+    app.state.component_health_task = asyncio.create_task(
+        _refresh_component_health_loop()
+    )
+    # 缓存持久化：后台清理 + 指标刷新（Phase 2-3）
+    if getattr(settings, "CACHE_PERSIST_ENABLE", False):
+        try:
+            from app.services.cache_persist import cleanup_loop, metrics_loop
+            app.state.cache_cleanup_task = asyncio.create_task(
+                cleanup_loop(settings.CACHE_PERSIST_CLEANUP_HOURS * 3600)
+            )
+            app.state.cache_metrics_task = asyncio.create_task(metrics_loop())
+            print("[cache] 缓存持久化后台任务已启动")
+        except Exception as e:
+            print(f"[cache] 缓存持久化启动跳过：{e}")
+    # 缓存预热：从 MySQL/golden_qa.json 预载高频问题到 Redis（Phase 3）
+    try:
+        from app.services.cache_warmup import warmup_hot_queries, warmup_from_file
+        from app.db.session import AsyncSessionLocal
+        async with AsyncSessionLocal() as _db:
+            n = await warmup_hot_queries(_db, topk=50)
+            if n:
+                print(f"[cache] 热点预热 {n} 条（来自 qa_cache hit_count Top-50）")
+            m = await warmup_from_file()
+            if m:
+                print(f"[cache] golden 预热 {m} 条")
+    except Exception as e:
+        print(f"[cache] 预热跳过：{e}")
+    # 操作日志自动归档：每日把超保留期的日志导出 jsonl 再删（BRD §4.5.2）
+    try:
+        from app.services.log_archive_service import archive_loop
+        app.state.log_archive_task = asyncio.create_task(archive_loop())
+        print("[log-archive] 日志归档后台任务已启动")
+    except Exception as e:
+        print(f"[log-archive] 启动跳过：{e}")
+    # 三合一全量定时备份：每 3h（MySQL+Redis+Milvus）
+    try:
+        from app.services.backup_service import backup_all_loop
+        app.state.backup_all_task = asyncio.create_task(backup_all_loop(3))
+        print("[backup] 定时全量备份后台任务已启动（每 3h）")
+    except Exception as e:
+        print(f"[backup] 定时备份启动跳过：{e}")
+    # 所有 provider、MCP 工具和运行时配置就绪后再消费积压任务，避免启动窗口内
+    # 的主动诊断拿到不完整工具集。任务/事件先落 MySQL，进程重启后可恢复。
+    try:
+        from app.tasks.lifecycle import start_background_workers
+
+        await start_background_workers(app)
+        print("[task-center] realtime/default/low worker 与事件 dispatcher 已启动")
+    except Exception as e:
+        degraded("task_center_start", e, "持久化任务 worker 启动失败")
+    # 知识自进化定时扫描（周期 KNOWLEDGE_EVOLUTION_CRON_HOURS，<=0 关闭）
+    try:
+        from app.services.knowledge_evolution_service import evolution_cron_loop
+        from app.config import settings as _settings
+        if float(getattr(_settings, "KNOWLEDGE_EVOLUTION_CRON_HOURS", 24)) > 0:
+            app.state.evolution_cron_task = asyncio.create_task(evolution_cron_loop("default"))
+            print("[evolution] 知识自进化定时扫描后台任务已启动")
+    except Exception as e:
+        print(f"[evolution] 定时扫描启动跳过：{e}")
+    # 证据补全定时深度补全+落库（周期 EVIDENCE_GAP_DEEP_INTERVAL 秒，<=0 关闭）
+    try:
+        from app.services.evidence_gap_service import deep_cron_loop
+        app.state.evidence_gap_cron_task = asyncio.create_task(deep_cron_loop("default"))
+        print("[evidence-gap] 证据补全定时深度补全已启动")
+    except Exception as e:
+        print(f"[evidence-gap] 定时补全启动跳过：{e}")
+    # ---- 关闭 ----
+    yield
+    try:
+        from app.tasks.lifecycle import stop_background_workers
+
+        await stop_background_workers(app)
+    except Exception as e:
+        degraded("task_center_stop", e)
+    _task = getattr(app.state, "component_health_task", None)
+    if _task:
+        _task.cancel()
+    _cache_cleanup = getattr(app.state, "cache_cleanup_task", None)
+    if _cache_cleanup:
+        _cache_cleanup.cancel()
+    _cache_metrics = getattr(app.state, "cache_metrics_task", None)
+    if _cache_metrics:
+        _cache_metrics.cancel()
+    _log_archive = getattr(app.state, "log_archive_task", None)
+    if _log_archive:
+        _log_archive.cancel()
+    _backup_all = getattr(app.state, "backup_all_task", None)
+    if _backup_all:
+        _backup_all.cancel()
+    _evo_cron = getattr(app.state, "evolution_cron_task", None)
+    if _evo_cron:
+        _evo_cron.cancel()
+    _gap_cron = getattr(app.state, "evidence_gap_cron_task", None)
+    if _gap_cron:
+        _gap_cron.cancel()
+    try:
+        from app.clients import neo4j_client
+        await neo4j_client.close()
+    except Exception:
+        pass
+    try:
+        from app.services.rerank_service import close_client
+        await close_client()  # 释放 rerank 共享 httpx 连接池
+    except Exception:
+        pass
+
+
+app = FastAPI(title=settings.APP_NAME, version=settings.APP_VERSION, lifespan=lifespan)
+
+# 限流（slowapi）
+from slowapi import _rate_limit_exceeded_handler  # noqa: E402
+from slowapi.errors import RateLimitExceeded  # noqa: E402
+
+from app.core.limiter import limiter  # noqa: E402
+
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+
+async def _probe_components() -> dict[str, str]:
+    """探活 DB / MinIO / Milvus / Redis，返回 {component: "ok"|"down"}。
+
+    /health 端点与后台周期刷新任务共用，避免健康探活逻辑两处维护。
+    """
+    checks: dict[str, str] = {}
+
+    try:
+        from sqlalchemy import text
+
+        from app.db.session import engine
+
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+        checks["mysql"] = "ok"
+    except Exception:
+        checks["mysql"] = "down"
+
+    try:
+        from app.clients import minio_client
+
+        minio_client.get_minio().bucket_exists(settings.MINIO_BUCKET)
+        checks["minio"] = "ok"
+    except Exception:
+        checks["minio"] = "down"
+
+    try:
+        from app.clients import milvus_client
+
+        milvus_client.num_entities()
+        checks["milvus"] = "ok"
+    except Exception:
+        checks["milvus"] = "down"
+
+    try:
+        from app.clients import redis_client
+
+        checks["redis"] = "ok" if await redis_client.ping() else "down"
+    except Exception:
+        checks["redis"] = "down"
+    return checks
+
+
+def _sync_component_health(checks: dict[str, str]) -> None:
+    """把探活结果同步到 Prometheus 组件健康指标(1=up/0=down)。"""
+    try:
+        from app.core import metrics
+
+        for comp, st in checks.items():
+            metrics.COMPONENT_HEALTH.labels(comp).set(1 if st == "ok" else 0)
+    except Exception:
+        pass
+
+
+async def _refresh_component_health_loop() -> None:
+    """周期刷新组件健康指标(每 30s)。
+
+    原 COMPONENT_HEALTH 只在 GET /health 时才 set，看板每 10s 刷新但指标可能
+    长期不动 → “基础组件健康”面板常驻空值。后台任务让 /metrics 始终携带近实时健康态。
+    """
+    while True:
+        try:
+            _sync_component_health(await _probe_components())
+        except Exception:
+            pass
+        await asyncio.sleep(30)
+
+
+@app.get("/health", tags=["系统"])
+async def health():
+    """健康检查：探活 DB / MinIO / Milvus / Redis。"""
+    checks = await _probe_components()
+    _sync_component_health(checks)
+
+    # provider 配置态快照（仅看 key 是否配置；运行态可用性见 /api/system/health/providers）
+    def _key_ok(role: str) -> bool:
+        p = settings.LLM_PROVIDER if role == "llm" else settings.EMB_PROVIDER
+        if role == "llm":
+            return {"deepseek": bool(settings.DEEPSEEK_API_KEY),
+                    "qwen": bool(settings.DASHSCOPE_API_KEY),
+                    "doubao": bool(settings.ARK_API_KEY)}.get(p, False)
+        return {"qwen": bool(settings.DASHSCOPE_API_KEY),
+                "doubao": bool(settings.ARK_API_KEY), "bge": True}.get(p, False)
+
+    providers = {
+        "llm": {"provider": settings.LLM_PROVIDER, "keyConfigured": _key_ok("llm")},
+        "embedding": {"provider": settings.EMB_PROVIDER, "keyConfigured": _key_ok("emb")},
+    }
+    all_ok = all(v == "ok" for v in checks.values())
+    return success(
+        data={"status": "healthy" if all_ok else "degraded", "checks": checks,
+              "providers": providers, "version": settings.APP_VERSION}
+    )
+
+
+# ---- 路由挂载 ----
+from app.routers import (  # noqa: E402
+    document,
+    domain,
+    kg,
+    knowledge_governance,
+    knowledge_evolution,
+    memory,
+    qa,
+    realtime_event,
+    retrieval,
+    retrieval_tune_router,
+    system,
+    task_center,
+    twin,
+)
+from app.mcp.server import router as mcp_router  # noqa: E402
+
+app.include_router(system.router, prefix=settings.API_PREFIX)
+app.include_router(document.router, prefix=settings.API_PREFIX)
+app.include_router(retrieval.router, prefix=settings.API_PREFIX)
+app.include_router(retrieval_tune_router.router, prefix=settings.API_PREFIX)
+app.include_router(qa.router, prefix=settings.API_PREFIX)
+app.include_router(kg.router, prefix=settings.API_PREFIX)
+app.include_router(domain.router, prefix=settings.API_PREFIX)
+app.include_router(memory.router, prefix=settings.API_PREFIX)
+app.include_router(twin.router, prefix=settings.API_PREFIX)
+app.include_router(task_center.router, prefix=settings.API_PREFIX)
+app.include_router(realtime_event.router, prefix=settings.API_PREFIX)
+app.include_router(knowledge_governance.router, prefix=settings.API_PREFIX)
+app.include_router(knowledge_evolution.router, prefix=settings.API_PREFIX)
+app.include_router(mcp_router, prefix=settings.API_PREFIX)
+
+
+# ---- 全局异常：BizError -> 统一 {code, message, data}（HTTP 恒 200，业务码放 body）----
+@app.exception_handler(BizError)
+async def biz_error_handler(request: Request, exc: BizError):
+    try:
+        metrics.ERRORS.labels("biz", str(exc.code)).inc()
+    except Exception:
+        pass
+    return JSONResponse(
+        status_code=200,
+        content=error(exc.message, exc.code, exc.data).model_dump(),
+    )
+
+
+# ---- Prometheus 指标 + 中间件 ----
+import time  # noqa: E402
+
+from prometheus_client import make_asgi_app  # noqa: E402
+
+from app.core import metrics  # noqa: E402
+
+
+@app.middleware("http")
+async def metrics_middleware(request: Request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    try:
+        metrics.REQUESTS.labels(request.method, request.url.path, str(response.status_code)).inc()
+        metrics.LATENCY.labels(request.url.path).observe(time.time() - start)
+        if response.status_code >= 500:
+            metrics.ERRORS.labels("http5xx", str(response.status_code)).inc()
+    except Exception:
+        pass
+    # X-Cache-Hit：从 request.state 读取缓存层，注入响应头（供调试/监控）
+    cache_layer = getattr(request.state, "cache_layer", None)
+    if cache_layer:
+        response.headers["X-Cache-Hit"] = cache_layer
+    return response
+
+
+from prometheus_client import CONTENT_TYPE_LATEST, generate_latest  # noqa: E402
+from fastapi import Response  # noqa: E402
+
+
+@app.get("/metrics")
+async def metrics_endpoint():
+    # 直接响应（避免 mount 的 trailing-slash 307，prometheus 采集 /metrics 不跟随重定向）
+    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)

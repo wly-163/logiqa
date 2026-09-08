@@ -1,0 +1,49 @@
+{
+  "stationId": "rdc-east-demo",
+  "stationName": "华东RDC示范仓",
+  "warehouseType": "RDC",
+  "type": "warehouse",
+  "areas": [
+    {"id": "receiving_dock", "name": "收货月台", "position": [-20, 0, 0], "size": [12, 0, 8]},
+    {"id": "storage_area", "name": "存储区", "position": [0, 0, 0], "size": [20, 0, 16]},
+    {"id": "picking_area", "name": "拣选区", "position": [0, 0, 12], "size": [14, 0, 8]},
+    {"id": "pack_area", "name": "复核打包区", "position": [14, 0, 12], "size": [8, 0, 6]},
+    {"id": "shipping_dock", "name": "发运月台", "position": [22, 0, 0], "size": [12, 0, 8]},
+    {"id": "cold_chain", "name": "冷链库", "position": [-8, 0, -12], "size": [10, 4, 8]},
+    {"id": "hazmat_area", "name": "危险品库", "position": [8, 0, -12], "size": [8, 4, 6]},
+    {"id": "agv_aisle", "name": "AGV巷道", "position": [0, 0, -4], "size": [16, 0, 4]}
+  ],
+  "devices": [
+    {"deviceId": "dock_in_01", "name": "收货月台1号", "type": "dock", "area": "receiving_dock", "position": [-22, 1, -2], "size": [3, 2, 2], "kgEntity": "收货月台1号", "connections": ["staging_recv_01", "wms_recv_01"]},
+    {"deviceId": "dock_in_02", "name": "收货月台2号", "type": "dock", "area": "receiving_dock", "position": [-22, 1, 2], "size": [3, 2, 2], "kgEntity": "收货月台2号", "connections": ["staging_recv_01"]},
+    {"deviceId": "staging_recv_01", "name": "收货暂存区", "type": "staging", "area": "receiving_dock", "position": [-16, 0.5, 0], "size": [4, 1, 4], "kgEntity": "收货暂存区", "connections": ["dock_in_01", "dock_in_02", "asrs_a01"]},
+
+    {"deviceId": "asrs_a01", "name": "A区立体库", "type": "asrs", "area": "storage_area", "position": [-4, 4, 0], "size": [6, 8, 8], "kgEntity": "A区立体库", "connections": ["staging_recv_01", "agv_01", "agv_02"]},
+    {"deviceId": "asrs_b01", "name": "B区立体库", "type": "asrs", "area": "storage_area", "position": [6, 4, 0], "size": [6, 8, 8], "kgEntity": "B区立体库", "connections": ["agv_02", "pick_station_01"]},
+
+    {"deviceId": "agv_01", "name": "AGV-01", "type": "agv", "area": "agv_aisle", "position": [-4, 0.4, -4], "size": [1.2, 0.8, 1.2], "kgEntity": "AGV-01", "connections": ["asrs_a01", "forklift_charge_01"]},
+    {"deviceId": "agv_02", "name": "AGV-02", "type": "agv", "area": "agv_aisle", "position": [2, 0.4, -4], "size": [1.2, 0.8, 1.2], "kgEntity": "AGV-02", "connections": ["asrs_a01", "asrs_b01", "pick_station_01"]},
+    {"deviceId": "agv_03", "name": "AGV-03", "type": "agv", "area": "agv_aisle", "position": [8, 0.4, -4], "size": [1.2, 0.8, 1.2], "kgEntity": "AGV-03", "connections": ["asrs_b01", "dock_out_01"]},
+
+    {"deviceId": "forklift_01", "name": "1号叉车", "type": "forklift", "area": "storage_area", "position": [-8, 1, 4], "size": [1.5, 2, 2.5], "kgEntity": "1号叉车", "connections": ["forklift_charge_01", "staging_recv_01"]},
+    {"deviceId": "forklift_02", "name": "2号叉车", "type": "forklift", "area": "shipping_dock", "position": [18, 1, 4], "size": [1.5, 2, 2.5], "kgEntity": "2号叉车", "connections": ["forklift_charge_02", "dock_out_01"]},
+    {"deviceId": "forklift_charge_01", "name": "叉车充电桩1号", "type": "forklift", "area": "storage_area", "position": [-10, 0.8, 6], "size": [1, 1.5, 1], "kgEntity": "叉车充电桩1号", "connections": ["forklift_01", "agv_01"]},
+    {"deviceId": "forklift_charge_02", "name": "叉车充电桩2号", "type": "forklift", "area": "shipping_dock", "position": [20, 0.8, 6], "size": [1, 1.5, 1], "kgEntity": "叉车充电桩2号", "connections": ["forklift_02"]},
+
+    {"deviceId": "pick_station_01", "name": "拣选工位1", "type": "wms_station", "area": "picking_area", "position": [-2, 1, 12], "size": [2, 1.5, 1.5], "kgEntity": "拣选工位1", "connections": ["asrs_b01", "pack_station_01"]},
+    {"deviceId": "pick_station_02", "name": "拣选工位2", "type": "wms_station", "area": "picking_area", "position": [4, 1, 12], "size": [2, 1.5, 1.5], "kgEntity": "拣选工位2", "connections": ["pack_station_01"]},
+    {"deviceId": "pack_station_01", "name": "复核打包台", "type": "wms_station", "area": "pack_area", "position": [14, 1, 12], "size": [3, 1.5, 2], "kgEntity": "复核打包台", "connections": ["pick_station_01", "pick_station_02", "staging_ship_01"]},
+    {"deviceId": "wms_recv_01", "name": "收货WMS工位", "type": "wms_station", "area": "receiving_dock", "position": [-18, 1, -4], "size": [1.5, 1.5, 1], "kgEntity": "收货WMS工位", "connections": ["dock_in_01"]},
+
+    {"deviceId": "staging_ship_01", "name": "发运暂存区", "type": "staging", "area": "shipping_dock", "position": [16, 0.5, 0], "size": [4, 1, 4], "kgEntity": "发运暂存区", "connections": ["pack_station_01", "dock_out_01", "dock_out_02"]},
+    {"deviceId": "dock_out_01", "name": "发运月台1号", "type": "dock", "area": "shipping_dock", "position": [24, 1, -2], "size": [3, 2, 2], "kgEntity": "发运月台1号", "connections": ["staging_ship_01", "agv_03"]},
+    {"deviceId": "dock_out_02", "name": "发运月台2号", "type": "dock", "area": "shipping_dock", "position": [24, 1, 2], "size": [3, 2, 2], "kgEntity": "发运月台2号", "connections": ["staging_ship_01"]},
+
+    {"deviceId": "cold_storage_01", "name": "冷链库A", "type": "cold_storage", "area": "cold_chain", "position": [-8, 2, -12], "size": [8, 4, 6], "kgEntity": "冷链库A", "connections": ["temp_sensor_01", "temp_sensor_02"]},
+    {"deviceId": "temp_sensor_01", "name": "冷链温控探头1", "type": "temperature_sensor", "area": "cold_chain", "position": [-10, 3, -10], "size": [0.3, 0.3, 0.3], "kgEntity": "冷链温控探头1", "connections": ["cold_storage_01"]},
+    {"deviceId": "temp_sensor_02", "name": "冷链温控探头2", "type": "temperature_sensor", "area": "cold_chain", "position": [-6, 3, -14], "size": [0.3, 0.3, 0.3], "kgEntity": "冷链温控探头2", "connections": ["cold_storage_01"]},
+
+    {"deviceId": "hazmat_storage_01", "name": "危品库1号", "type": "hazmat_storage", "area": "hazmat_area", "position": [8, 2, -12], "size": [6, 4, 4], "kgEntity": "危品库1号", "connections": ["temp_sensor_03"]},
+    {"deviceId": "temp_sensor_03", "name": "危品区温湿度探头", "type": "temperature_sensor", "area": "hazmat_area", "position": [10, 3, -10], "size": [0.3, 0.3, 0.3], "kgEntity": "危品区温湿度探头", "connections": ["hazmat_storage_01"]}
+  ]
+}
