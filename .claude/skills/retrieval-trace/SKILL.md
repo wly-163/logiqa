@@ -61,7 +61,7 @@ curl -s -X POST http://localhost:8001/api/retrieval/debug -H "Authorization: Bea
 | dense 全 0 | Milvus 索引问题 / embedding provider 挂 | 降级日志 `grep 降级:.*embed\|milvus` |
 | 路由分错 | query_classifier 误判 | trace.config 无 route？看 RoutingDecision.reason |
 
-## 关键代码位置（codegraph 核实）
+## 关键代码位置（代码审计 核实）
 - 主链路：`backend/app/services/retrieval_service.py`（mixed_search:143 / debug_search:328）
 - 路由：`backend/app/routing/routing_service.py`（route_query）+ `query_classifier.py`（RoutingDecision）
 - 融合：`backend/app/rag/rrf.py`（rrf_fuse）
@@ -69,4 +69,4 @@ curl -s -X POST http://localhost:8001/api/retrieval/debug -H "Authorization: Bea
 - 多样性：`backend/app/rag/mmr.py`
 - 自纠错：`backend/app/rag/crag.py` + `qa_service._crag_correct`
 
-> codegraph 定位：`codegraph explore "mixed_search debug_search route_query rrf_fuse _crag_correct"`
+> 代码审计 定位：`代码审计 explore "mixed_search debug_search route_query rrf_fuse _crag_correct"`

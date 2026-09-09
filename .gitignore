@@ -39,6 +39,9 @@ dist/
 # ===== IDE / OS =====
 .vscode/
 .idea/
+.cursor/
+.claude/
+.codegraph/
 *.swp
 .DS_Store
 Thumbs.db
@@ -59,7 +62,7 @@ logs/
 docs/**/*调研报告*.md
 docs/methodology/
 docs/query-rewrite-methodology.md
-docs/superpowers/research/
+docs/design/research/
 
 # ===== 工具/临时产物（不入库）=====
 .agents/

@@ -62,4 +62,4 @@ curl -s http://localhost:8001/api/system/health/providers -H "Authorization: Bea
 - 指标定义 + 预注册：`backend/app/core/metrics.py`（DEGRADED + init_metric_series）
 - 健康探活：`backend/app/routers/system.py`（/health, /system/health/providers）+ 后台 `_refresh_component_health_loop`
 
-> codegraph 定位：`codegraph explore "degraded DEGRADED init_metric_series COMPONENT_HEALTH check_llm_health"`
+> 代码审计 定位：`代码审计 explore "degraded DEGRADED init_metric_series COMPONENT_HEALTH check_llm_health"`

@@ -73,7 +73,7 @@ Redis 挂/MySQL 写失败会降级走 LLM（不阻塞业务但命中率掉）。
 | 命中率低 | LRU 淘汰（内存不够）/ 写条件过严 / 预热没跑 | `redis-cli INFO memory` + 步骤 4 + 启动日志 |
 | 改完代码没生效 | 源码 bake 进镜像，没 rebuild | `docker compose up -d --build backend` |
 
-## 关键代码位置（codegraph 核实）
+## 关键代码位置（代码审计 核实）
 - 写条件/读条件：`backend/app/services/qa_service.py`（answer + stream_answer 缓存块）
 - Redis 读写：`backend/app/clients/redis_client.py`（cache_get/set_json）
 - MySQL L2：`backend/app/services/cache_persist.py`（cache_get/set_mysql + 回填）
@@ -81,4 +81,4 @@ Redis 挂/MySQL 写失败会降级走 LLM（不阻塞业务但命中率掉）。
 - 预热：`backend/app/services/cache_warmup.py`（warmup_hot_queries/from_file）
 - 降级：`backend/app/core/obs.py`（degraded）
 
-> 用 codegraph 快速定位：`codegraph explore "_cache_key cache_set_json cache_get_mysql is_query_blacklisted warmup"`
+> 用 代码审计 快速定位：`代码审计 explore "_cache_key cache_set_json cache_get_mysql is_query_blacklisted warmup"`
