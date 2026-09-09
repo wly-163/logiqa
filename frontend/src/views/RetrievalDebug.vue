@@ -16,7 +16,7 @@
         </div>
         <div class="field grow" style="margin-bottom:0">
           <label class="field-label">文档类型（可选）</label>
-          <input class="input" v-model="docType" placeholder="运维手册/故障案例/检修规程/其他" />
+          <input class="input" v-model="docType" placeholder="运维手册/故障案例/操作规程/其他" />
         </div>
         <div class="field grow" style="margin-bottom:0">
           <label class="field-label">设备标签（可选）</label>

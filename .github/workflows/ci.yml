@@ -12,11 +12,16 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
-      - name: 安装依赖（排除 sentence-transformers/torch，CI 不下 bge 模型）
+          python-version: "3.11"
+      - name: 安装依赖（排除 sentence-transformers/torch，CI 不下载 bge 模型）
         run: |
           python -m pip install --upgrade pip
           grep -v "sentence-transformers" backend/requirements.txt > /tmp/req.txt
           pip install -r /tmp/req.txt
-      - name: 运行单元测试（跳过需服务的集成测试）
-        run: python -m pytest tests/ -v -m "not integration"
+      - name: golden 问答集格式校验
+        run: python scripts/validate_golden.py
+      - name: 单元测试（排除需后端服务的集成测试）
+        run: python -m pytest tests/ -q --ignore=tests/test_api.py -m "not integration"
+      # 检索/生成评测需 Milvus + embedding / LLM，不在此 CI 跑。
+      # 本地：python scripts/eval_retrieval.py（recall@5 < 92% 退出码 1）
+      # 本地：python scripts/eval_generation.py（faithfulness < 0.85 退出码 1）

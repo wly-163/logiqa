@@ -11,7 +11,7 @@
         <div>
           <label class="hint">部门（影响可见文档范围，空=公开）</label>
           <div class="row" style="gap:8px;margin-top:6px">
-            <input class="input" v-model="dept" placeholder="如：调度/检修" />
+            <input class="input" v-model="dept" placeholder="如：仓储/干线" />
             <button class="btn btn-primary" @click="saveDept">保存部门</button>
           </div>
         </div>

@@ -89,7 +89,7 @@
                   <option value="auditor">auditor</option>
                 </select>
               </td>
-              <td><input class="input" v-model="u.dept" placeholder="如:调度/检修" style="width:120px" /></td>
+              <td><input class="input" v-model="u.dept" placeholder="如:仓储/干线" style="width:120px" /></td>
               <td class="muted">{{ u.tenantId }}</td>
               <td><span class="badge" :class="u.status === 'inactive' ? 'badge-danger' : 'badge-success'">{{ u.status === 'inactive' ? '已禁用' : '正常' }}</span></td>
               <td class="muted">{{ u.createdAt }}</td>

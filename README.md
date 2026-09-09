@@ -1,11 +1,17 @@
 # LogiQA · 智链问答
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
-[![CI](https://img.shields.io/badge/CI-pytest-green.svg)](.github/workflows/ci.yml)
+[![CI](https://github.com/wly-163/logiqa/actions/workflows/ci.yml/badge.svg)](https://github.com/wly-163/logiqa/actions/workflows/ci.yml)
 
 基于大模型 + RAG 的供应链物流智能问答系统（开源）：**自然语言提问 → 智能路由 → 混合检索 → 三级缓存 → CRAG 自纠错 → 可信答案生成**。
 
 覆盖仓配作业、干线运输、库存协同与末端送装等场景，为一线人员提供可落地的异常处置与作业指导。
+
+![智能问答](docs/images/chat.png)
+
+| 3D 知识图谱 | 仓配孪生 |
+|---|---|
+| ![3D 知识图谱](docs/images/kg-3d.png) | ![仓配孪生](docs/images/twin.png) |
 
 > 前端 Vue 3 · 后端 FastAPI · 多家云大模型可切换 · 智能路由 · 三级缓存(Redis→MySQL→Semantic)· 双 Embedding 并查 · GraphRAG(Neo4j 多跳)· Corrective RAG 自纠错 · 知识自进化闭环 · RBAC + 文档级 ACL · Prometheus/Grafana 全链路可观测
 
@@ -1169,7 +1175,7 @@ flowchart LR
 │   └── requirements.txt
 ├── frontend/                     # Vue 3 前端(7 view + utils/perm.js)
 ├── scripts/                      # 评测/压测/建库/打包(pack_release.sh)
-├── tests/                        # pytest(69 用例)
+├── tests/                        # pytest（CI 跑非 integration）
 ├── grafana/provisioning/         # 22 面板 dashboard + alerting
 ├── docker-compose.yml            # 开发版编排
 ├── docker-compose.deploy.yml     # ★部署版(bind mount 数据卷)
@@ -1309,21 +1315,22 @@ npm --prefix frontend run dev
 
 ## 十三、质量保障与评测
 
-| 指标 | 结果 | 目标 |
-|---|---|---|
-| 检索召回率 recall@5 | **100%** (12/12) | ≥92% |
-| MRR | **0.944** | — |
-| 单请求检索延迟 | **0.95s** | ≤1.5s |
-| 50 并发检索成功率 | **100%** | 不崩 |
-| LLM-as-judge 幻觉率 | **0%** | ≤5% |
-| ★ 三级缓存命中率 | **~75%**(原 ~20%) | — |
-| ★ 加权平均延迟 | **~3s**(原 ~10s) | — |
-| ★ 智能路由覆盖 | **60%+ 走精简路径** | — |
+公开 CI 每次 push / PR 跑两件事：**golden 格式校验**（当前 `backend/data/golden_qa.json` **42** 条仓配问句）和 **不依赖外部服务的单元测试**。检索召回与生成 faithfulness 需要 Milvus / Embedding / LLM，在本地或夜间执行，不把无法复现的历史数字写进 README。
 
-- **单元测试 69 用例**:`pytest tests/ -v`
-- **golden 回归集**(`backend/data/golden_qa.json` 34+ 条仓储物流问句):`eval_retrieval.py` recall/MRR + CI 门禁(recall<92% 退出码 1)
-- **生成质量门禁**:`eval_generation.py` faithfulness(`FAITHFULNESS_GATE=0.85`)
-- **CI**:main push/PR 触发 golden 校验 + 单测
+| 门禁 | 何时跑 | 失败条件 |
+|---|---|---|
+| golden 格式 | GitHub Actions | query / expect / category 不合法 |
+| 单元测试 | GitHub Actions | `pytest tests/ -m "not integration"` 失败 |
+| `scripts/eval_retrieval.py` | 本地（需检索服务） | recall@5 < 92% |
+| `scripts/eval_generation.py` | 本地（需 LLM） | 平均 faithfulness < 0.85 |
+
+```bash
+python scripts/validate_golden.py
+python -m pytest tests/ -q --ignore=tests/test_api.py -m "not integration"
+# 有完整后端时：
+python scripts/eval_retrieval.py
+python scripts/eval_generation.py
+```
 
 ---
 

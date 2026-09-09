@@ -16,9 +16,9 @@
         </div>
         <div class="row" style="margin-top: 14px">
           <select class="select" v-model="docType" style="width:auto">
-            <option>运维手册</option><option>故障案例</option><option>检修规程</option><option>其他</option>
+            <option>运维手册</option><option>故障案例</option><option>操作规程</option><option>安全规程</option><option>其他</option>
           </select>
-          <input class="input" v-model="dept" placeholder="部门(调度/检修,空=公开)" style="width:170px" title="文档级 ACL：限定某部门可见，空=全员公开" />
+          <input class="input" v-model="dept" placeholder="部门(仓储/干线,空=公开)" style="width:170px" title="文档级 ACL：限定某部门可见，空=全员公开" />
           <input class="input" v-model="allowedRoles" placeholder="授权角色(逗号分隔,空=全员)" style="width:170px" title="限定可读角色，空=部门内全员" />
           <button class="btn btn-primary" @click="upload" :disabled="!files.length || uploading">{{ uploading ? '上传中...' : '上传' }}</button>
           <button class="btn btn-ghost" v-if="files.length" @click="files = []">清空</button>

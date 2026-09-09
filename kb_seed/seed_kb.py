@@ -10,7 +10,7 @@ import httpx
 
 BASE = "http://127.0.0.1:8001/api"
 KB_DIR = Path(__file__).resolve().parent
-PREFIX_TYPES = ("故障案例", "操作规程", "运维手册", "安全规程", "标准条文", "检修规程", "应急预案")
+PREFIX_TYPES = ("故障案例", "操作规程", "运维手册", "安全规程", "标准条文", "应急预案")
 
 
 def doc_type_of(name: str) -> str:
