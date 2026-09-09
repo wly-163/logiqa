@@ -152,6 +152,18 @@ class Settings(BaseSettings):
     EVIDENCE_GAP_AUTO_COLLECT: bool = True        # 自动收集 medium/refused
     EVIDENCE_GAP_DRAFT_TOPK_MULT: int = 2         # AI 续写检索放宽倍数
     EVIDENCE_GAP_FAQ_DOCTYPE: str = "证据补全FAQ"  # 同步入库的 docType
+    EVIDENCE_GAP_DEEP_INTERVAL: float = 180.0     # 深度补全定时周期（秒）；<=0 关闭
+    EVIDENCE_GAP_DEEP_BATCH: int = 5              # 每轮深度补全批量上限
+
+    # ---------- 知识自进化 ----------
+    KNOWLEDGE_EVOLUTION_CRON_HOURS: float = 24.0  # 自进化扫描周期（小时）；<=0 关闭
+    KNOWLEDGE_EVOLUTION_WEEKLY_QUOTA: int = 20     # 每周 indexed 回流上限；0=不限
+    AI_EVOLUTION_RETRIEVAL_FILTER: str = "downgrade"  # downgrade | exclude
+    AI_EVOLUTION_QUALITY_SCORE: float = 0.6       # ai_evolution 结果降权系数
+
+    # ---------- 双路 RAG / 同义词扩展 ----------
+    DUAL_RAG_ENABLE: bool = False                 # 主路异常时切副路（流式路径不走）
+    SYNONYM_EXPAND_ENABLE: bool = False           # BM25 同义词扩展
 
     # ---------- 结构感知分块 + Parent-Child（small-to-big）----------
     # 检索用小块（精度），命中后召回同组大块给 LLM（完整上下文，解决长规程跨块/表格被切两半）
