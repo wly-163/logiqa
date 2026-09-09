@@ -1,7 +1,5 @@
 # 知识库自进化闭环 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 新增 `knowledge_evolution_service` 编排器，对 dislike 聚类→识别 Milvus 盲区→LLM 写增量 chunk 草稿→审核回流，复用 PersistentTask/governance 范式，零新底座。
 
 **Architecture:** 复刻 `knowledge_governance` 的 scan 入队 + review 审核双范式。新增 1 张表 `KnowledgeEvolutionDraft` + 1 个编排器 service + 1 套 router；聚类用零依赖贪心近邻；回流复用 `chunk_service`/`document_service`；P3 加定时任务 + 配额 + 指标。
@@ -106,7 +104,7 @@ class KnowledgeEvolutionDraft(Base):
     indexed_at = Column(DateTime, nullable=True)
 ```
 
-> 实现时用 codegraph 确认项目 `Base` 的真实导入路径（`backend/app/db/base.py` 或 `db/session.py`），对齐其他 model。
+> 实现时用 代码审计 确认项目 `Base` 的真实导入路径（`backend/app/db/base.py` 或 `db/session.py`），对齐其他 model。
 
 - [ ] **Step 4: 导出 + 注册建表**
 
@@ -276,7 +274,7 @@ from app.models.feedback import Feedback
 from app.services import feedback_service, embedding_service
 
 async def _retrieve_top1(db, query, tenant, top_k=1):
-    """封装 retrieval 检索，返回 [{score, doc_id}]。执行时用 codegraph 确认 retrieval_service 入口签名。"""
+    """封装 retrieval 检索，返回 [{score, doc_id}]。执行时用 代码审计 确认 retrieval_service 入口签名。"""
     from app.services import retrieval_service
     res = await retrieval_service.mixed_retrieve(db, query, tenant=tenant, top_k=top_k)
     return [{"score": float(r.get("score", 0.0)), "doc_id": r.get("doc_id", "")} for r in res]
@@ -304,7 +302,7 @@ async def _identify_blind_spot(db, cluster, tenant):
     return {"top1_score": score, "hit_doc_ids": [top[0]["doc_id"]], "confidence": "medium"}
 ```
 
-> `_retrieve_top1` 内部调用 `retrieval_service.mixed_retrieve`：执行时用 codegraph 确认真实函数名与参数（可能是 `retrieve`/`mixed_search` 等），调整 `fake_retrieve` mock 与真实签名一致。
+> `_retrieve_top1` 内部调用 `retrieval_service.mixed_retrieve`：执行时用 代码审计 确认真实函数名与参数（可能是 `retrieve`/`mixed_search` 等），调整 `fake_retrieve` mock 与真实签名一致。
 
 - [ ] **Step 3: 跑测试 + 提交**
 
@@ -343,7 +341,7 @@ import json
 from sqlalchemy import select
 from app.models.document import Document
 from app.services import embedding_service
-from app.clients import llm_client  # 执行时 codegraph 确认 LLM 调用入口
+from app.clients import llm_client  # 执行时 代码审计 确认 LLM 调用入口
 
 async def _recent_standards(db, query, tenant, top_k=3):
     """最近规程文档：Document recency + 向量检索。返回 [{doc_id, name, snippet}]。"""
@@ -361,7 +359,7 @@ PROMPT_TMPL = """你是仓储物流知识工程师。基于高频用户疑问和
 输出 JSON: {{"title":"...","content":"...","source_refs":["doc_id"]}}"""
 
 async def _call_llm_json(prompt, model_type):
-    from app.services import llm_call  # 执行时 codegraph 确认 LLM 入口(如 qa_service 用的 chat)
+    from app.services import llm_call  # 执行时 代码审计 确认 LLM 入口(如 qa_service 用的 chat)
     raw = await llm_call(prompt, model_type)
     return raw  # 调用方 json.loads
 
@@ -380,7 +378,7 @@ async def _generate_draft(db, cluster, evidence, tenant, model_type):
     }
 ```
 
-> `_call_llm_json` 的 LLM 入口：执行时 codegraph 确认（项目里 `qa_service`/`llm` provider 的 chat 调用），对齐真实函数名。
+> `_call_llm_json` 的 LLM 入口：执行时 代码审计 确认（项目里 `qa_service`/`llm` provider 的 chat 调用），对齐真实函数名。
 
 - [ ] **Step 3: 跑测试 + 提交**
 
@@ -480,7 +478,7 @@ git commit -m "feat(evolution): run_scan编排+入队"
 
 - [ ] **Step 1: 注册 handler（复刻 knowledge.scan handler 位置）**
 
-用 codegraph 看 `tasks/builtin.py` 里 `knowledge.scan` 的注册方式（装饰器 or dict），照抄注册 `knowledge_evolution.scan` → 调 `run_scan`。
+用 代码审计 看 `tasks/builtin.py` 里 `knowledge.scan` 的注册方式（装饰器 or dict），照抄注册 `knowledge_evolution.scan` → 调 `run_scan`。
 
 ```python
 # tasks/builtin.py 内（按现有注册模式追加）
@@ -635,11 +633,11 @@ git commit -m "feat(evolution): 审核+查询+stats(P1收尾)"
 ## Task 9: 回流 Milvus + 撤回 + 检索降权（P2）
 
 **Files:** Modify `knowledge_evolution_service.py`, `retrieval_service.py`
-**Consumes:** `chunk_service`/`document_service` 入库函数（执行时 codegraph 定位签名）
+**Consumes:** `chunk_service`/`document_service` 入库函数（执行时 代码审计 定位签名）
 
-- [ ] **Step 1: codegraph 定位入库入口**
+- [ ] **Step 1: 代码审计 定位入库入口**
 
-Run: codegraph_explore `chunk_service add_chunk upsert insert Milvus；document_service create chunk 入库 embed`
+Run: 代码审计_explore `chunk_service add_chunk upsert insert Milvus；document_service create chunk 入库 embed`
 确认真实函数名（如 `chunk_service.upsert_chunk(db, doc_id, content, vec, metadata)`），记下签名。
 
 - [ ] **Step 2: 写失败测试（reflow 幂等 + withdraw）**
@@ -663,10 +661,10 @@ async def test_reflow_idempotent(test_db, monkeypatch):
 ```python
 # knowledge_evolution_service.py 追加
 async def _add_chunk_to_kb(db, draft):
-    """调 chunk_service/document_service 入库。执行时用 codegraph 确认的真实函数替换下方占位调用。"""
+    """调 chunk_service/document_service 入库。执行时用 代码审计 确认的真实函数替换下方占位调用。"""
     from app.services import chunk_service, embedding_service
     vec = await embedding_service.embed_texts([draft.draft_content])
-    # ↓ 真实签名以 codegraph Step1 结果为准；metadata 打标 ai_evolution
+    # ↓ 真实签名以 代码审计 Step1 结果为准；metadata 打标 ai_evolution
     chunk_id = await chunk_service.upsert_chunk(
         db, doc_id=_AI_EVOLUTION_DOC_ID, content=draft.draft_content,
         vec=vec[0], metadata={"source_type": "ai_evolution", "quality_score": AI_QUALITY_SCORE, "draft_id": draft.id})
@@ -685,7 +683,7 @@ async def withdraw_draft(db, draft_id, tenant):
     r = (await db.execute(select(KnowledgeEvolutionDraft).where(KnowledgeEvolutionDraft.id==draft_id, KnowledgeEvolutionDraft.tenant_id==tenant))).scalar_one_or_none()
     if not r or r.status != "indexed": raise ValueError("仅 indexed 可撤回")
     from app.services import chunk_service
-    await chunk_service.delete_chunk(r.chunk_id)   # 执行时 codegraph 确认删除函数(含 Milvus delete)
+    await chunk_service.delete_chunk(r.chunk_id)   # 执行时 代码审计 确认删除函数(含 Milvus delete)
     r.status = "withdrawn"; await db.commit(); return _to_dict(r)
 ```
 
@@ -700,7 +698,7 @@ async def draft_withdraw(draft_id: str, db: AsyncSession = Depends(get_db), user
 
 - [ ] **Step 5: 检索降权（retrieval_service）**
 
-用 codegraph 定位 `retrieval_service` 打分/返回处，对 `metadata.source_type=='ai_evolution'` 的结果 `score *= AI_QUALITY_SCORE`；如 `AI_EVOLUTION_RETRIEVAL_FILTER=exclude` 则过滤。加配置项到 `config.py`。
+用 代码审计 定位 `retrieval_service` 打分/返回处，对 `metadata.source_type=='ai_evolution'` 的结果 `score *= AI_QUALITY_SCORE`；如 `AI_EVOLUTION_RETRIEVAL_FILTER=exclude` 则过滤。加配置项到 `config.py`。
 
 - [ ] **Step 6: 跑测试 + 提交**
 
@@ -743,7 +741,7 @@ async def _weekly_indexed_count(db, tenant):
 #       raise ValueError("本周回流配额已满")
 ```
 
-定时入队：在 worker 启动逻辑（`tasks/worker.py` 或 `main.py` lifespan）加周期任务，每 `KNOWLEDGE_EVOLUTION_CRON_HOURS` 小时 `enqueue_evolution_scan("default")`。执行时 codegraph 看 worker 启动点接入。
+定时入队：在 worker 启动逻辑（`tasks/worker.py` 或 `main.py` lifespan）加周期任务，每 `KNOWLEDGE_EVOLUTION_CRON_HOURS` 小时 `enqueue_evolution_scan("default")`。执行时 代码审计 看 worker 启动点接入。
 
 - [ ] **Step 4: 测试配额 + 提交**
 
@@ -801,5 +799,5 @@ git commit -m "feat(evolution): 前端审核台"
 ## Self-Review（已执行）
 
 - **Spec 覆盖**：§4 模型→T1；§5 接口→T3-8；§6 五阶段→T3-6；§7 触发调度→T6/T10；§8 降权→T9；§9 指标→T10；§10 API→T7/T8/T9；§11 前端→T11；§13 测试→各 task 内联；§14 分阶段→T1-8=P1, T9=P2, T10=P3。✅
-- **Placeholder**：`_retrieve_top1`/`_call_llm_json`/`_add_chunk_to_kb`/`chunk_service.upsert_chunk` 均为「执行时 codegraph 确认真实签名」的现有 API 调用指引（非 TODO），已逐处标注。✅
+- **Placeholder**：`_retrieve_top1`/`_call_llm_json`/`_add_chunk_to_kb`/`chunk_service.upsert_chunk` 均为「执行时 代码审计 确认真实签名」的现有 API 调用指引（非 TODO），已逐处标注。✅
 - **类型一致**：`KnowledgeEvolutionDraft`、`cluster()`、`_to_dict()`、`review_draft()` 跨 task 命名一致。✅

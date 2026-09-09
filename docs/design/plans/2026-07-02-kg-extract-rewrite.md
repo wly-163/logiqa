@@ -1,7 +1,5 @@
 # KG 三元组抽取重写 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 重写 `kg_service.extract_triples`——schema 约束 prompt + 健壮解析 + 全局去重/归一/噪声过滤，把三元组质量（噪声/遗漏/不一致）一次治好。自动触发与 MySQL+Neo4j 双写不变。
 
 **Architecture:** 把 schema（实体类型 + 关系白名单）喂进 prompt 让 LLM 直接产出规范三元组；解析 `_parse_triples_v2`（JSON 优先/行式回退/逐条校验）；纯函数 `_normalize_triples` 做归一+去重+`_is_trivial` 过滤；`extract_triples` 退化为薄编排（读 chunks → `_extract_from_chunks` → `_normalize_triples` → 写）。`kg_normalize` 关系白名单 11→13（+保护/试验）。
@@ -42,18 +40,15 @@
 ```python
 from app.services import kg_normalize
 
-
 def test_canonical_relation_protect():
     assert kg_normalize.canonical_relation("动作于") == "保护"
     assert kg_normalize.canonical_relation("保护范围") == "保护"
     assert kg_normalize.canonical_relation("SLA违约") == "保护"
 
-
 def test_canonical_relation_test():
     assert kg_normalize.canonical_relation("校验") == "试验"
     assert kg_normalize.canonical_relation("检验") == "试验"
     assert kg_normalize.canonical_relation("测试") == "试验"
-
 
 def test_canonical_relation_existing_unchanged():
     assert kg_normalize.canonical_relation("导致") == "原因"
@@ -117,36 +112,30 @@ git commit -m "feat(kg): 关系白名单 +保护/+试验（11→13）"
 import asyncio
 from app.services import kg_service as svc
 
-
 # ---------- _parse_triples_v2 ----------
 def test_parse_json_array():
     ans = '[{"s":"AGV","r":"原因","o":"制冷系统故障"},{"s":"分拣设备","r":"试验","o":"回路电阻测试"}]'
     out = svc._parse_triples_v2(ans)
     assert len(out) == 2 and out[0]["s"] == "AGV"
 
-
 def test_parse_array_with_garbage_around():
     ans = '说明文字 [{"s":"A","r":"发生","o":"B"}] 后缀'
     out = svc._parse_triples_v2(ans)
     assert out == [{"s": "A", "r": "发生", "o": "B"}]
 
-
 def test_parse_bad_json_returns_empty():
     assert svc._parse_triples_v2("not json at all") == []
     assert svc._parse_triples_v2("") == []
-
 
 def test_parse_drops_invalid_items_keeps_valid():
     ans = '[{"s":"好","r":"原因","o":"的"},{"s":"","r":"x","o":"y"},{"s":"a","r":"b","o":"c"}]'
     out = svc._parse_triples_v2(ans)
     assert out == [{"s": "好", "r": "原因", "o": "的"}, {"s": "a", "r": "b", "o": "c"}]
 
-
 def test_parse_line_fallback():
     ans = '抽取结果：\n{"s":"AGV","r":"原因","o":"过载"}\n{"s":"风扇","r":"表现为","o":"停转"}'
     out = svc._parse_triples_v2(ans)
     assert len(out) == 2 and out[0]["o"] == "过载"
-
 
 # ---------- _is_trivial ----------
 def test_is_trivial_section_and_number():
@@ -159,12 +148,10 @@ def test_is_trivial_section_and_number():
     assert svc._is_trivial("图3")
     assert svc._is_trivial("表1")
 
-
 def test_is_trivial_not_real_entity():
     assert not svc._is_trivial("AGV")
     assert not svc._is_trivial("制冷系统故障")
     assert not svc._is_trivial("危险品库位设备")
-
 
 # ---------- _normalize_triples ----------
 def test_normalize_dedup_selfloop_trivial_canon():
@@ -204,7 +191,6 @@ def _validate_triples(arr) -> list[dict]:
             out.append({"s": s, "r": r, "o": o})
     return out
 
-
 def _parse_triples_v2(ans: str) -> list[dict]:
     """解析 LLM 三元组输出：JSON 数组优先，行式回退，逐条校验丢弃坏条目。"""
     if not ans:
@@ -226,10 +212,8 @@ def _parse_triples_v2(ans: str) -> list[dict]:
             pass
     return _validate_triples(line_objs)
 
-
 _TRIVIAL_BLACK = ("本文", "本节", "本章", "章节", "附录", "摘要", "目录", "前言")
 _TRIVIAL_PAT = re.compile(r"(^第[一二三四五六七八九十百0-9]+[章节条])|^[0-9]+(\.[0-9]+)+$|^[0-9]+$|^[图表][0-9一二三四五六七八九十]")
-
 
 def _is_trivial(s: str) -> bool:
     """噪声判断：空/过短/章节标题/纯数字标点/黑名单词。"""
@@ -245,7 +229,6 @@ def _is_trivial(s: str) -> bool:
     if re.fullmatch(r"[\d\.\s\-/,，。：:;；、]+", s):
         return True
     return False
-
 
 def _normalize_triples(triples: list[dict]) -> list[dict]:
     """全局后处理：实体归一 + 关系白名单 + 去重(s,r,o) + 噪声过滤。"""
@@ -307,7 +290,6 @@ class _ScriptedProvider:
         self.calls += 1
         return self.replies.pop(0)
 
-
 def test_extract_pipeline_drops_noise_and_canonicalizes():
     # 两批 chunks，每批 LLM 返回带噪声 + 有效
     prov = _ScriptedProvider([
@@ -322,7 +304,6 @@ def test_extract_pipeline_drops_noise_and_canonicalizes():
     assert ("AGV", "原因", "制冷系统故障") in pairs   # AGV-01→AGV + 导致→原因 + 与另一条去重
     assert ("分拣设备", "保护", "SLA违约") in pairs             # 动作于→保护
     assert all("第" not in t["s"] and "本文" not in t["o"] for t in normed)  # 噪声已滤
-
 
 def test_extract_from_chunks_degrades_on_llm_failure(monkeypatch):
     class _Boom:

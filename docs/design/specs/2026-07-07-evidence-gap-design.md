@@ -1,6 +1,6 @@
 # 证据补全闭环设计
 
-> 2026-07-07 · brainstorming 产出 · 待 review
+> 2026-07-07 · 设计草案 · 待评审
 
 ## 1. 背景
 
@@ -44,7 +44,7 @@ CRAG 自纠错（`_crag_correct` → `confidence_of`）已能判 confidence=medi
 
 **去重键**：`(query, status='pending')`——同 nq 已有 pending 不重复写。
 
-## 5. 组件（接现有设施，codegraph 核实）
+## 5. 组件（接现有设施，代码审计 核实）
 
 ### 5.1 EvidenceGapCollector（自动收集）
 - **触发**：`qa_service.answer/stream` 末尾，if `confidence in ("medium","refused")` and `EVIDENCE_GAP_AUTO_COLLECT`

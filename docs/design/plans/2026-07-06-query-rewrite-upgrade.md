@@ -1,7 +1,5 @@
 # Query 改写升级 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把 query 改写从 toy 升级——评估闭环（RRF 分数对比）+ Redis 缓存 + Classifier（兼 adaptive）+ few-shot prompt + 前端质量可视化面板。
 
 **Architecture:** 后端 3 个新组件（RewriteStrategyClassifier / RewriteCache / RewriteEvaluator）+ RewriteEventLogger 接入 `mixed_search` step 0，全部复用已有 RRF/Redis/milvus/embedding 设施；前端 Admin 新增「🔧 Query改写」tab 用 echarts 可视化改写质量。CRAG force 改写与 adaptive/评估解耦。
@@ -173,7 +171,6 @@ from pathlib import Path
 _COLLOQUIAL = {"咋", "咋办", "咋整", "啥", "啥叫", "嘛", "啥样", "咋样", "咋回事"}
 _ABBR = {"WMS", "TMS", "AGV", "RDC", "FDC", "VMI", "IoT", "SLA", "SKU"}
 
-
 @lru_cache
 def _load_fewshot() -> dict:
     p = Path(__file__).resolve().parent.parent / "data" / "rewrite_fewshot.json"
@@ -181,10 +178,8 @@ def _load_fewshot() -> dict:
         return json.loads(p.read_text(encoding="utf-8"))
     return {}
 
-
 def get_fewshot(type_: str) -> list[dict]:
     return _load_fewshot().get(type_, [])
-
 
 def classify(query: str) -> dict:
     """判 query 类型。正常→skip=True（兼 adaptive：跳过整个改写流程）。"""
@@ -278,11 +273,9 @@ from app.clients import redis_client
 from app.config import settings
 from app.core.obs import degraded
 
-
 def _key(strategy: str, query: str) -> str:
     h = hashlib.md5(query.encode("utf-8")).hexdigest()
     return f"rewrite:{strategy}:{h}"
-
 
 async def get(strategy: str, query: str) -> dict | None:
     try:
@@ -291,7 +284,6 @@ async def get(strategy: str, query: str) -> dict | None:
     except Exception as e:
         degraded("rewrite_cache_get", e)
         return None
-
 
 async def set(strategy: str, query: str, value: dict) -> bool:
     try:
@@ -377,7 +369,6 @@ from app.services import embedding_service
 from app.clients import milvus_client
 import asyncio
 
-
 async def _light_dense(query: str, model_type: str | None) -> list[dict]:
     """单路 dense_cloud 轻量检索，返回 [{score}, ...]。"""
     qvec = await embedding_service.embed_query(query, settings.EMB_PROVIDER)
@@ -385,10 +376,8 @@ async def _light_dense(query: str, model_type: str | None) -> list[dict]:
         milvus_client.search, settings.MILVUS_COLLECTION, qvec, settings.REWRITE_EVAL_CAND,
     )
 
-
 def _score_sum(hits: list[dict]) -> float:
     return sum(float(h.get("score", 0) or 0) for h in (hits or [])[: settings.REWRITE_EVAL_TOPK])
-
 
 async def evaluate(original: str, rewritten: str, model_type: str | None) -> dict:
     """rewritten 分数和 > original*(1+margin) 才算更优。异常回退 not improved。"""
@@ -437,7 +426,6 @@ from sqlalchemy import DateTime, Float, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.db.base import Base
-
 
 class RewriteEvent(Base):
     __tablename__ = "rewrite_event"
@@ -492,7 +480,6 @@ from app.core.obs import degraded
 from app.db.session import AsyncSessionLocal
 from app.models.rewrite_event import RewriteEvent
 
-
 async def log(strategy, original, rewritten, improved, orig_score, new_score, cached, route="hybrid", tenant="default"):
     """采样写一条事件。bg task 调用，独立 session。"""
     if random.random() > settings.REWRITE_EVENT_SAMPLE_RATE:
@@ -508,11 +495,9 @@ async def log(strategy, original, rewritten, improved, orig_score, new_score, ca
     except Exception as e:
         degraded("rewrite_event_log", e)
 
-
 def _period_start(period: str) -> datetime:
     n = datetime.now()
     return n - (timedelta(days=1) if period == "today" else timedelta(days=7))
-
 
 async def stats(period: str = "today") -> dict:
     try:
@@ -544,7 +529,6 @@ async def stats(period: str = "today") -> dict:
     except Exception as e:
         degraded("rewrite_event_stats", e)
         return {"total": 0, "adopted": 0, "rejected": 0, "cacheHit": 0, "byStrategy": {}}
-
 
 async def events_page(page: int = 1, size: int = 20, strategy: str | None = None, adopted: bool | None = None) -> dict:
     try:
@@ -632,7 +616,6 @@ from app.services import rewrite_cache, rewrite_evaluator
 from app.services.rewrite_strategy import classify, get_fewshot
 from app.services import rewrite_event_service
 
-
 def _build_prompt(query: str, strategy: dict) -> str:
     fs = get_fewshot(strategy["type"])
     examples = "".join(f"示例：{e['q']} → {e['r']}\n" for e in fs)
@@ -641,7 +624,6 @@ def _build_prompt(query: str, strategy: dict) -> str:
         f"（{strategy['hint']}，保留关键设备/故障/操作术语，去掉口语）。只输出改写后查询，不要解释：\n"
         f"{examples}输入：{query}\n输出："
     )
-
 
 async def rewrite_query_v2(query: str, model_type: str | None = None) -> dict:
     """完整改写：Classifier→Cache→改写→Evaluator→记事件。规范 query 跳过（adaptive）。"""
@@ -812,7 +794,6 @@ async def optimizer_rewrite_stats(
     """Query 改写质量评估统计（总数/采纳率/缓存命中/策略分布）。"""
     from app.services.rewrite_event_service import stats
     return success(await stats(period), "查询成功")
-
 
 @router.get("/optimizer/rewrite-events")
 async def optimizer_rewrite_events(

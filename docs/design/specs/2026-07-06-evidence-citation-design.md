@@ -205,7 +205,7 @@ retrievalSource[] 每项: { docId, docName, docType, chunkIdx, chunk(完整), sc
 - `qa_service.answer` 集成：result 含 `evidenceTrace`、`retrievalSource` 字段齐全、缓存命中字段一致。
 - 前端：来源卡片新字段渲染、反向高亮、annotatedAnswer 替换重渲染。
 
-## 9. 实施顺序（供 writing-plans 细化）
+## 9. 实施顺序
 
 1. `citation.auto_cite` + 单测（独立可测）
 2. `_to_item` 扩字段 + `mixed_search` docType 带出 + sources 归因 + 集成测试

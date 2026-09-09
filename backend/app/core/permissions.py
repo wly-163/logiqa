@@ -1,6 +1,6 @@
 """RBAC 权限常量 + 角色-权限默认映射。
 
-设计见 docs/superpowers/specs/2026-07-01-rbac-acl-design.md（用户已确认）。
+设计见 docs/design/specs/2026-07-01-rbac-acl-design.md（用户已确认）。
 - 权限用字符串常量（资源:动作），细到 endpoint 级
 - 角色绑定权限集（ROLE_PERMISSIONS 默认映射，首版硬编码；role_permission 表支持 DB 覆盖，后续）
 - admin 永远全权限；auditor 永远只读

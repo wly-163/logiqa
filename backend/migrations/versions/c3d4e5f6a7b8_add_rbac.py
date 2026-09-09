@@ -4,7 +4,7 @@ Revision ID: c3d4e5f6a7b8
 Revises: b2c3d4e5f6a7
 Create Date: 2026-07-12
 
-RBAC 细粒度权限 + 文档级 ACL（设计见 docs/superpowers/specs/2026-07-01-rbac-acl-design.md）。
+RBAC 细粒度权限 + 文档级 ACL（设计见 docs/design/specs/2026-07-01-rbac-acl-design.md）。
 开发期主路径走 init_db._COLUMN_MIGRATIONS + create_all；本迁移为生产/Alembic 路径留痕，两条路径等价。
 """
 from alembic import op

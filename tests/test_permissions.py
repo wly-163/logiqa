@@ -1,7 +1,7 @@
 """RBAC 权限矩阵单测（has_perm + 角色-权限默认映射）。
 
 项目惯例：纯函数测，无需 DB/pytest-asyncio（参考 tests/test_agent_runtime.py）。
-设计对齐 docs/superpowers/specs/2026-07-01-rbac-acl-design.md。
+设计对齐 docs/design/specs/2026-07-01-rbac-acl-design.md。
 """
 from app.core.permissions import has_perm, role_perms, VALID_ROLES, ROLE_PERMISSIONS
 

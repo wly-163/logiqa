@@ -1,7 +1,5 @@
 # 作业单智能审核（ticket-audit）实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 补齐"作业单生成 → 作业单审核"闭环：输入已填的出库作业单/入库作业单文本，输出规则引擎 + LLM 双层结构化审核报告（overall/score/items）。
 
 **Architecture:** 后端新增 `ticket_audit_service`：`parse_ticket` 启发式结构化解析 → `_rule_check`（确定性硬规则，可配 JSON）+ `_llm_check`（语义合规，复用 `get_llm_provider` temperature=0）→ `_aggregate` 聚合打分。LLM 失败走 `degraded()` 降级只返回规则层。路由 `POST /domain/ticket/audit`（admin + 限流 + 操作日志），前端 `Diagnose.vue` 加第 4 个 tab。
@@ -81,7 +79,6 @@ _WORK_TICKET = """作业任务：2号干线检修
 - 叉车混行
 """
 
-
 def test_parse_ticket_op_fields():
     p = svc.parse_ticket(_OP_TICKET, "作业单")
     assert p["ticket_type"] == "作业单"
@@ -93,24 +90,20 @@ def test_parse_ticket_op_fields():
     assert any("双人复核" in s for s in p["safety"])
     assert any("错发错配" in d for d in p["dangers"])
 
-
 def test_parse_ticket_work_fields():
     p = svc.parse_ticket(_WORK_TICKET, "作业单")
     assert "2号干线" in p["task"]
     assert p["operator"] == "李四"           # 作业负责人 → operator
     assert p["ticket_type"] == "作业单"
 
-
 def test_parse_ticket_empty():
     p = svc.parse_ticket("", "作业单")
     assert p["task"] == "" and p["steps"] == [] and p["dangers"] == []
-
 
 def test_load_rules_defaults_when_missing(tmp_path, monkeypatch):
     monkeypatch.setattr(svc, "_RULES_PATH", tmp_path / "nope.json")
     r = svc._load_rules()
     assert "required_fields" in r and r.get("sequences"), "缺失文件应回落 _DEFAULT_RULES"
-
 
 def test_load_rules_reads_json(tmp_path, monkeypatch):
     f = tmp_path / "ticket_rules.json"
@@ -159,16 +152,13 @@ _STEP_MARKERS = ("操作步骤", "步骤", "操作内容")
 _SAFETY_MARKERS = ("安全措施", "安措", "安全技术措施")
 _DANGER_MARKERS = ("危险点", "风险点")
 
-
 def _strip_num(line: str) -> str:
     """去掉行首序号：'1.' '1、' '1)' '①' '- ' '* '。"""
     return re.sub(r"^\s*(?:\d+[.、)）]\s*|[①-⑳]\s*|[-*•]\s*)", "", line).strip()
 
-
 def _is_header(line: str, markers: tuple[str, ...]) -> bool:
     s = _strip_num(line.rstrip(":： ").strip())
     return any(m in s for m in markers) and len(s) <= 14
-
 
 def parse_ticket(text: str, ticket_type: str = "作业单") -> dict:
     """启发式结构化解析：单行字段正则 + 分段扫描 steps/safety/dangers。"""
@@ -212,7 +202,6 @@ def parse_ticket(text: str, ticket_type: str = "作业单") -> dict:
             parsed["steps"].append(item)   # 无标题时，编号行默认归步骤
     return parsed
 
-
 _DEFAULT_RULES = {
     "required_fields": [
         {"id": "REQ_TASK", "field": "task", "label": "任务", "severity": "critical", "suggestion": "补充操作任务"},
@@ -229,7 +218,6 @@ _DEFAULT_RULES = {
     "dispatch_pattern": r"^[A-Za-z0-9\-]{4,}$",
     "blocklist": ["约时停送电", "约定停送电", "口头指令"],
 }
-
 
 def _load_rules() -> dict:
     """读 ticket_rules.json；缺失/非法回落 _DEFAULT_RULES（规则层始终可用）。"""
@@ -298,13 +286,11 @@ def _parsed(**over):
     base.update(over)
     return base
 
-
 def test_rule_required_field_present_then_absent():
     p = _parsed(operator="张三")
     assert not any(it["ruleId"] == "REQ_OPERATOR" for it in svc._rule_check(p, svc._DEFAULT_RULES))
     p2 = _parsed(operator="")
     assert any(it["ruleId"] == "REQ_OPERATOR" for it in svc._rule_check(p2, svc._DEFAULT_RULES))
-
 
 def test_rule_sequence_violation_and_correct_order():
     bad = _parsed(steps=["封库隔离", "复核"])           # 封库隔离在复核前 → 违安措
@@ -312,21 +298,17 @@ def test_rule_sequence_violation_and_correct_order():
     good = _parsed(steps=["复核", "封库隔离"])          # 正确顺序不命中
     assert "SEQ_001" not in [it["ruleId"] for it in svc._rule_check(good, svc._DEFAULT_RULES)]
 
-
 def test_rule_danger_point_missing_when_high_risk():
     p = _parsed(steps=["停线操作"], raw="涉及停线", dangers=[])
     assert any(it["ruleId"] == "DANGER_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
-
 
 def test_rule_danger_point_ok_when_listed():
     p = _parsed(steps=["停线操作"], raw="涉及停线", dangers=["错发错配"])
     assert not any(it["ruleId"] == "DANGER_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
 
-
 def test_rule_dispatch_format():
     p = _parsed(dispatch_no="非法")
     assert any(it["ruleId"] == "DISP_001" for it in svc._rule_check(p, svc._DEFAULT_RULES))
-
 
 def test_rule_blocklist():
     p = _parsed(steps=["约时停送电送电"], raw="约时停送电", dangers=["d"])
@@ -346,13 +328,11 @@ def _item(layer: str, rule_id: str, typ: str, severity: str, msg: str, suggestio
     return {"layer": layer, "ruleId": rule_id, "type": typ,
             "severity": severity, "msg": msg, "suggestion": suggestion}
 
-
 def _find_idx(steps: list[str], kw: str):
     for i, s in enumerate(steps):
         if kw in s:
             return i
     return None
-
 
 def _rule_check(parsed: dict, rules: dict) -> list[dict]:
     """确定性硬规则：必填项 / 操作顺序 / 危险点 / 调度格式 / 禁用术语。"""
@@ -426,7 +406,6 @@ class _FakeProvider:
     def __init__(self, resp): self.resp = resp
     async def chat(self, msgs, **kw): return self.resp
 
-
 def test_scoring_pure():
     assert svc._score([]) == 100
     assert svc._score([{"severity": "critical"}]) == 65       # 100-35
@@ -435,7 +414,6 @@ def test_scoring_pure():
     assert svc._overall(90) == "pass"
     assert svc._overall(70) == "warn"
     assert svc._overall(50) == "fail"
-
 
 def test_llm_check_parses_items(monkeypatch):
     monkeypatch.setattr(
@@ -447,11 +425,9 @@ def test_llm_check_parses_items(monkeypatch):
     assert len(items) == 1
     assert items[0]["layer"] == "llm" and items[0]["severity"] == "major"
 
-
 def test_llm_check_empty_array(monkeypatch):
     monkeypatch.setattr(svc, "get_llm_provider", lambda mt=None: _FakeProvider("[]"))
     assert asyncio.run(svc._llm_check({"task": "t", "steps": [], "safety": [], "dangers": []}, "作业单", None)) == []
-
 
 def test_audit_ticket_happy_path(monkeypatch):
     async def no_llm(*a, **k): return []
@@ -460,12 +436,10 @@ def test_audit_ticket_happy_path(monkeypatch):
     assert report["overall"] == "pass" and report["score"] == 100
     assert report["ticketType"] == "作业单" and "latencyMs" in report
 
-
 def test_audit_ticket_empty_input():
     report = asyncio.run(svc.audit_ticket("", "作业单", None))
     assert report["overall"] == "fail" and report["score"] == 0
     assert report["items"][0]["severity"] == "critical"
-
 
 def test_audit_ticket_degrades_on_llm_failure(monkeypatch):
     async def boom(*a, **k): raise RuntimeError("llm down")
@@ -497,7 +471,6 @@ _LLM_AUDIT_PROMPT = """你是仓储物流作业单审核专家。规则引擎已
 【安全措施】{safety}
 【危险点】{dangers}"""
 
-
 def _extract_json(ans: str):
     """从 LLM 回答里抠 JSON（数组或对象）；镜像 domain_service._extract_json。"""
     m = re.search(r"(\{.*\}|\[.*\])", ans or "", re.S)
@@ -507,7 +480,6 @@ def _extract_json(ans: str):
         return json.loads(m.group(0))
     except Exception:
         return None
-
 
 async def _llm_check(parsed: dict, ticket_type: str, model_type: str | None) -> list[dict]:
     """LLM 语义审核（temperature=0，结构化 JSON）。"""
@@ -529,18 +501,14 @@ async def _llm_check(parsed: dict, ticket_type: str, model_type: str | None) -> 
                                it.get("severity", "minor"), it.get("msg", ""), it.get("suggestion", "")))
     return items
 
-
 _DEDUAGV = {"critical": 35, "major": 15, "minor": 5}
-
 
 def _score(items: list[dict]) -> int:
     s = 100 - sum(_DEDUCT.get(it.get("severity", "minor"), 5) for it in items)
     return max(0, min(100, s))
 
-
 def _overall(score: int) -> str:
     return "pass" if score >= 85 else "warn" if score >= 60 else "fail"
-
 
 def _inc_metric(overall: str) -> None:
     try:
@@ -548,7 +516,6 @@ def _inc_metric(overall: str) -> None:
         metrics.TICKET_AUDIT.labels(overall).inc()
     except Exception:
         pass
-
 
 async def audit_ticket(text: str, ticket_type: str = "作业单", model_type: str | None = None) -> dict:
     """编排双层审核 + 聚合。LLM 失败降级只返回规则层。"""
@@ -724,7 +691,6 @@ import json
 from pathlib import Path
 
 _GOLDEN_PATH = Path(__file__).resolve().parent.parent / "backend" / "data" / "golden_tickets.json"
-
 
 def test_golden_tickets_regression(monkeypatch):
     """规则层确定性回归：LLM mock 为 []，每例 overall 必须等于 expect。"""

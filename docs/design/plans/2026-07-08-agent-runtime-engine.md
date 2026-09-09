@@ -1,8 +1,6 @@
 # S1 通用 Agent 引擎地基 — 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
-> ⚠️ **本机限制**：记忆 [[subagent-dispatch-broken-glm5]] 指出本机 Agent 工具派子 agent 会报"模型不存在"，故 **subagent-driven-development 不可用，必须用 superpowers:executing-plans inline 执行**。
 
 **Goal:** 把诊断专用 `diagnose_agent_service` 抽象成 persona 驱动的通用 Agent 引擎（`agent_runtime`），并把 `diagnose_agent` 迁移为 persona="diagnose"，行为零回归。
 
@@ -60,19 +58,16 @@ from app.services.agent_runtime import (
     AgentResult, Persona, Tool, ToolRegistry, _extract_json, _to_openai_tool_calls,
 )
 
-
 def test_tool_schema_is_openai_function_format():
     t = Tool(name="foo", description="do foo", parameters={"type": "object"}, handler=lambda *a, **k: None)
     assert t.schema == {"type": "function", "function": {
         "name": "foo", "description": "do foo", "parameters": {"type": "object"}}}
-
 
 def test_tool_registry_run_unknown_tool_returns_error_flag():
     reg = ToolRegistry()
     result, err = asyncio.run(reg.run(db=None, model_type=None, name="nope", args={}))
     assert err is True
     assert "未知工具" in result
-
 
 def test_tool_registry_run_isolates_handler_exception():
     async def boom(db, model_type, **args):
@@ -83,7 +78,6 @@ def test_tool_registry_run_isolates_handler_exception():
     assert err is True
     assert "执行失败" in result
 
-
 def test_tool_registry_schemas_for_returns_subset():
     async def h(db, mt, **a):
         return "ok"
@@ -93,17 +87,14 @@ def test_tool_registry_schemas_for_returns_subset():
     schemas = reg.schemas_for(["a", "missing", "b"])
     assert [s["function"]["name"] for s in schemas] == ["a", "b"]
 
-
 def test_extract_json_parses_embedded_json():
     assert _extract_json('噪声 {"a": 1} 尾巴') == {"a": 1}
     assert _extract_json("无 json") is None
-
 
 def test_to_openai_tool_calls_serializes_arguments():
     out = _to_openai_tool_calls([{"id": "x", "name": "foo", "arguments": {"q": "中文"}}])
     assert out == [{"id": "x", "type": "function",
                     "function": {"name": "foo", "arguments": '{"q": "中文"}'}}]
-
 
 def test_persona_defaults():
     p = Persona(name="qa", system_prompt="s", allowed_tools=[])
@@ -140,7 +131,6 @@ from app.providers.factory import get_llm_provider
 
 MAX_ITER_DEFAULT = 6
 
-
 @dataclass
 class Tool:
     """一个工具 = OpenAI schema + handler，绑成单一对象避免 schema/handler 不一致。"""
@@ -154,7 +144,6 @@ class Tool:
         return {"type": "function", "function": {
             "name": self.name, "description": self.description,
             "parameters": self.parameters}}
-
 
 class ToolRegistry:
     """工具注册表：register/get/schemas_for/run。run 内含 per-tool 异常隔离。"""
@@ -188,7 +177,6 @@ class ToolRegistry:
             degraded(f"agent_tool_{name}", e)
             return f"工具 {name} 执行失败: {type(e).__name__}: {e}", True
 
-
 @dataclass
 class Persona:
     """场景配置：system prompt + 工具子集 + 参数 + 输出格式 + 降级目标。"""
@@ -202,7 +190,6 @@ class Persona:
     fallback: Optional[Callable[[AsyncSession, str, Optional[str]], Awaitable[dict]]] = None
     config_source: str = "code"          # 预留 S5："code" | "db"
 
-
 @dataclass
 class AgentResult:
     answer: object                        # str（text）| dict（json）
@@ -214,7 +201,6 @@ class AgentResult:
     persona: str
     tools_used: list[str]
 
-
 def _extract_json(ans: str) -> Optional[dict | list]:
     """从 LLM 输出中正则提取 JSON（自包含副本，与 domain_service 一致，不引入跨服务依赖）。"""
     m = re.search(r"(\{.*\}|\[.*\])", ans or "", re.S)
@@ -224,7 +210,6 @@ def _extract_json(ans: str) -> Optional[dict | list]:
         return json.loads(m.group(0))
     except Exception:
         return None
-
 
 def _to_openai_tool_calls(tool_calls):
     """内部 dict 形式 tool_calls → openai assistant 消息需要的结构。"""
@@ -265,14 +250,12 @@ git commit -m "feat(agent-runtime): Tool/ToolRegistry/Persona/AgentResult 核心
 ```python
 from app.services import agent_tools
 
-
 def test_search_regulation_wraps_mixed_search(monkeypatch):
     async def fake_mixed(db, q, topk, model_type=None):
         return [{"docName": "手册A", "chunk": "库温超过-18℃应..."}]
     monkeypatch.setattr(agent_tools.retrieval_service, "mixed_search", fake_mixed)
     out = asyncio.run(agent_tools._t_search_regulation(db=None, model_type=None, query="库温超温"))
     assert "手册A" in out and "库温" in out
-
 
 def test_query_equipment_graph_empty_returns_hint(monkeypatch):
     async def fake_graph(entity, limit):
@@ -281,7 +264,6 @@ def test_query_equipment_graph_empty_returns_hint(monkeypatch):
     out = asyncio.run(agent_tools._t_query_equipment_graph(None, None, entity="AGV-01"))
     assert "无" in out
 
-
 def test_search_similar_case_wraps_domain(monkeypatch):
     async def fake_case(db, symptom, mt, topk):
         return {"cases": [{"docName": "案例X", "text": "历史上风扇故障..."}]}
@@ -289,14 +271,12 @@ def test_search_similar_case_wraps_domain(monkeypatch):
     out = asyncio.run(agent_tools._t_search_similar_case(None, None, symptom="过热"))
     assert "案例X" in out
 
-
 def test_draft_ticket_wraps_domain(monkeypatch):
     async def fake_ticket(db, task, mt, topk):
         return {"ticket": {"device": "AGV-01", "steps": ["断开分拣设备"], "safety": ["复核"], "risks": []}}
     monkeypatch.setattr(agent_tools.domain_service, "generate_ticket", fake_ticket)
     out = asyncio.run(agent_tools._t_draft_ticket(None, None, task="转维保"))
     assert "AGV-01" in out and "断开开关" in out
-
 
 def test_default_registry_has_four_tools():
     names = {t.name for t in agent_tools.DEFAULT_REGISTRY._tools.values()}
@@ -322,31 +302,26 @@ from app.services.agent_runtime import Tool, ToolRegistry
 
 _TOPK = 5
 
-
 # ---------- 工具实现（包装现有 service，返回 LLM 可读摘要）----------
 async def _t_search_regulation(db, model_type, query):
     """检索运维规程/手册。"""
     ctx = await retrieval_service.mixed_search(db, query, _TOPK, model_type=model_type)
     return _fmt_chunks(ctx) or "未检索到相关规程"
 
-
 async def _t_query_equipment_graph(db, model_type, entity):
     """查设备-故障-处置因果链（Neo4j 图谱）。"""
     rows = await kg_service.graph_context(entity, 8)
     return "\n".join(rows) if rows else "图谱中无该设备相关因果链"
-
 
 async def _t_search_similar_case(db, model_type, symptom):
     """查历史相似故障案例。"""
     res = await domain_service.similar_case(db, symptom, model_type, _TOPK)
     return _fmt_cases(res.get("cases", [])) or "未找到相似历史案例"
 
-
 async def _t_draft_ticket(db, model_type, task):
     """生成处置作业单草案。"""
     res = await domain_service.generate_ticket(db, task, model_type, _TOPK)
     return _fmt_ticket(res.get("ticket", {})) or "生成作业单草案失败"
-
 
 # ---------- 摘要格式化 ----------
 def _fmt_chunks(ctx):
@@ -355,13 +330,11 @@ def _fmt_chunks(ctx):
     return "\n".join(f"[{i}] {(c.get('docName') or '')}: {(c.get('chunk') or '')[:200]}"
                      for i, c in enumerate(ctx[:_TOPK], 1))
 
-
 def _fmt_cases(cases):
     if not cases:
         return ""
     return "\n".join(f"[{i}] {(c.get('docName') or '')}: {(c.get('text') or '')[:200]}"
                      for i, c in enumerate(cases[:_TOPK], 1))
-
 
 def _fmt_ticket(ticket):
     if not ticket:
@@ -371,7 +344,6 @@ def _fmt_ticket(ticket):
             f"步骤:{';'.join(steps[:8]) if steps else '无'}\n"
             f"安措:{';'.join(ticket.get('safety') or []) or '无'}\n"
             f"风险:{';'.join(ticket.get('risks') or []) or '无'}")
-
 
 # ---------- schema ----------
 _SCHEMA_QUERY = {"type": "object",
@@ -386,7 +358,6 @@ _SCHEMA_SYMPTOM = {"type": "object",
 _SCHEMA_TASK = {"type": "object",
                 "properties": {"task": {"type": "string", "description": "操作任务，如 'AGV-01由运行转维保'"}},
                 "required": ["task"]}
-
 
 def build_default_registry() -> ToolRegistry:
     reg = ToolRegistry()
@@ -403,7 +374,6 @@ def build_default_registry() -> ToolRegistry:
                       "生成处置作业单草案（步骤/安措/风险）。诊断基本明确、需要处置步骤时调用。",
                       _SCHEMA_TASK, _t_draft_ticket))
     return reg
-
 
 DEFAULT_REGISTRY = build_default_registry()
 ```
@@ -438,7 +408,6 @@ git commit -m "feat(agent-runtime): 迁移4工具到 agent_tools + DEFAULT_REGIS
 ```python
 from app.core import metrics
 from prometheus_client import generate_latest
-
 
 def test_agent_metrics_preregistered_in_registry():
     metrics.init_metric_series()
@@ -509,7 +478,6 @@ git commit -m "feat(metrics): AGENT_CALLS/AGENT_TOOL_CALLS 指标 + 预注册(di
 from app.services import agent_runtime
 from app.services.agent_runtime import Persona, Tool, ToolRegistry, run_agent
 
-
 class FakeProvider:
     """脚本化 chat_with_tools：按顺序返回预设响应。"""
     def __init__(self, script):
@@ -524,12 +492,10 @@ class FakeProvider:
         self.i += 1
         return {"content": resp.get("content"), "tool_calls": resp.get("tool_calls")}
 
-
 def _reg_with(tool_name, handler):
     reg = ToolRegistry()
     reg.register(Tool(tool_name, "d", {"type": "object"}, handler))
     return reg
-
 
 def test_run_agent_normal_path_breaks_when_no_tool_calls(monkeypatch):
     async def h(db, mt, **a):
@@ -548,7 +514,6 @@ def test_run_agent_normal_path_breaks_when_no_tool_calls(monkeypatch):
     assert res.steps[0]["tool"] == "h1" and res.steps[0]["error"] is False
     assert res.steps[1]["tool"] is None  # 收尾思考步
 
-
 def test_run_agent_json_output_format_extracts(monkeypatch):
     async def h(db, mt, **a):
         return "e"
@@ -557,7 +522,6 @@ def test_run_agent_json_output_format_extracts(monkeypatch):
     monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: fake)
     res = asyncio.run(run_agent(None, persona, "q", registry=_reg_with("h1", h)))
     assert res.answer == {"causes": [], "summary": "ok"}
-
 
 def test_run_agent_max_iter_degrades_to_fallback(monkeypatch):
     async def h(db, mt, **a):
@@ -573,7 +537,6 @@ def test_run_agent_max_iter_degrades_to_fallback(monkeypatch):
     assert res.degraded is True and res.degrade_reason == "max_iter"
     assert res.answer == {"summary": "降级结果"}
 
-
 def test_run_agent_provider_exception_degrades(monkeypatch):
     class Boom:
         async def chat_with_tools(self, *a, **k):
@@ -584,7 +547,6 @@ def test_run_agent_provider_exception_degrades(monkeypatch):
     monkeypatch.setattr(agent_runtime, "get_llm_provider", lambda mt: Boom())
     res = asyncio.run(run_agent(None, persona, "q", registry=ToolRegistry()))
     assert res.degraded is True and "exception" in res.degrade_reason
-
 
 def test_run_agent_per_tool_error_isolated(monkeypatch):
     async def boom(db, mt, **a):
@@ -617,7 +579,6 @@ def _inc_metrics(persona: str, iterations: int) -> None:
         metrics.AGENT_ITERS.observe(iterations)
     except Exception:
         pass
-
 
 async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
                     model_type: Optional[str] = None,
@@ -680,7 +641,6 @@ async def run_agent(db: AsyncSession, persona: Persona, user_msg: str,
         tools_used=sorted({s["tool"] for s in steps if s["tool"]}),
     )
 
-
 async def _fallback(db, persona: Persona, user_msg: str, model_type,
                     steps: list[dict], t0: float, reason: str) -> AgentResult:
     """降级：调 persona.fallback；失败再退到最小化结果。保留已收集 steps。"""
@@ -732,7 +692,6 @@ git commit -m "feat(agent-runtime): run_agent ReAct 循环 + _fallback(降级/pe
 ```python
 from app.services import agent_personas
 
-
 def test_diagnose_persona_config():
     p = agent_personas.DIAGNOSE_PERSONA
     assert p.name == "diagnose"
@@ -741,7 +700,6 @@ def test_diagnose_persona_config():
     assert set(p.allowed_tools) == {"search_regulation", "query_equipment_graph",
                                     "search_similar_case", "draft_ticket"}
     assert "仓储物流" in p.system_prompt or "诊断" in p.system_prompt
-
 
 def test_diagnose_fallback_strips_prefix_and_calls_domain(monkeypatch):
     captured = {}
@@ -779,13 +737,11 @@ _DIAGNOSE_SYSTEM = """你是仓储物流异常诊断专家。基于异常症状�
 2) 最终诊断必须输出严格 JSON：{"causes":[{"name":"可能原因","likelihood":"高/中/低","evidence":"资料依据","handling":"处置措施"}],"summary":"总体判断","risks":["风险点"]}
 3) 原因按可能性从高到低排序；只基于工具收集的证据，证据不足如实说明；高风险处置（停线/封库/波次切换）须在 risks 标注。"""
 
-
 async def _diagnose_fallback(db, user_msg, model_type):
     """降级：剥离 '故障症状：' 前缀后调 single-pass diagnose，返回 diagnosis dict。"""
     symptom = (user_msg or "").replace("故障症状：", "").strip()
     data = await domain_service.diagnose(db, symptom, model_type)
     return data.get("diagnosis", {"summary": "", "causes": []})
-
 
 DIAGNOSE_PERSONA = Persona(
     name="diagnose",
@@ -832,7 +788,6 @@ git commit -m "feat(agent-runtime): DIAGNOSE_PERSONA + _diagnose_fallback(person
 ```python
 from app.services import diagnose_agent_service
 
-
 def test_diagnose_agent_migration_returns_stable_schema(monkeypatch):
     """黄金回归：迁移后 diagnose_agent 返回 schema 与原实现一致（适配层映射正确）。"""
     fake = FakeProvider([
@@ -855,7 +810,6 @@ def test_diagnose_agent_migration_returns_stable_schema(monkeypatch):
     assert out["diagnosis"]["summary"] == "过热"
     assert out["diagnosis"]["causes"][0]["name"] == "风扇故障"
     assert [s["tool"] for s in out["steps"]] == ["search_regulation", "query_equipment_graph", None]
-
 
 def test_endpoint_smoke_compile():
     """端点 smoke：路由模块可编译+导入（项目无 TestClient 约定）。"""
@@ -884,7 +838,6 @@ diagnose_agent(db, symptom, model_type) 适配层：调 run_agent(DIAGNOSE_PERSO
 """
 from app.services.agent_personas import DIAGNOSE_PERSONA
 from app.services.agent_runtime import run_agent
-
 
 async def diagnose_agent(db, symptom, model_type=None):
     """Agentic 诊断：LLM 自主调工具多轮验证 → 既有响应 schema（不变）。"""
@@ -944,15 +897,3 @@ git commit -m "refactor(diagnose-agent): 迁移为 agent_runtime 适配层(路�
 - `steps[].error` 字段 → Task 1 注释、Task 4 写入、Task 6 黄金回归不显式断言 error（向后兼容）✓
 - 指标名 `AGENT_CALLS`/`AGENT_TOOL_CALLS`/`AGENT_ITERS` → Task 3 定义、Task 4 `_inc_metrics` 与 run_agent 内引用一致 ✓
 
----
-
-## Execution Handoff
-
-计划已保存到 `docs/superpowers/plans/2026-07-08-agent-runtime-engine.md`。
-
-两种执行方式：
-
-1. **Inline 执行（本机唯一可用）** — 用 `superpowers:executing-plans` 在本会话按 task 顺序执行，批量推进 + checkpoint 复核。**本机 subagent-driven 因 [[subagent-dispatch-broken-glm5]] 不可用，故推荐此方式。**
-2. ~~Subagent-Driven~~ — 本机不可用（Agent 工具派子 agent 报"模型不存在"）。
-
-**下一步**：确认后我用 `superpowers:executing-plans` 从 Task 1 开始 inline 执行。

@@ -1,7 +1,5 @@
 # 可核验 RAG 引用体系 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 把现有 `citation.auto_cite`（后处理补标）升级为端到端「可核验引用引擎」——入库元数据治理 → 服务端受控编号 → 标准化结构化生成 → 三层校验（格式/向量/NLI）→ 前端可视化 + 评测闭环，让 `[1]` 标记等价于「可定位、可溯源、可核验」。
 
 **Architecture:** 贯穿 RAG 五层，最大复用现有件：`citation.evidence_trace`/`auto_cite._cosine_mat`（校验1+2）、`judge.judge_hallucination` 的声明拆解（抽 `_verify_claims` 做校验3 NLI）、CRAG `_crag_correct` 的 rewrite/refused（校验失败兜底）。新增 4 个模块：`rag/citation_index.py`（受控编号）、`rag/citation_verifier.py`（三层校验引擎）、`schemas/citation.py`（结构化输出）、`scripts/eval_citation.py`（评测）。全开关 opt-in，默认行为=现状零破坏。
@@ -68,7 +66,6 @@
 """Chunk 引用元数据新字段 + 迁移幂等。"""
 from app.models.chunk import Chunk
 
-
 def test_chunk_has_citation_meta_fields():
     c = Chunk(doc_id="d1", chunk_idx=0, content="x", section_path="3.1 > 第2条",
               page_num=5, bbox='[10,20,300,80]', table_header="序号|名称",
@@ -78,7 +75,6 @@ def test_chunk_has_citation_meta_fields():
     assert c.bbox == '[10,20,300,80]'
     assert c.table_header == "序号|名称"
     assert c.metadata_complete is True
-
 
 def test_chunk_fields_default_backward_compat():
     """旧路径不传新字段 → 默认值，向后兼容。"""
@@ -150,14 +146,12 @@ down_revision = "c3d4e5f6a7b8"
 branch_labels = None
 depends_on = None
 
-
 def upgrade() -> None:
     op.add_column("chunks", sa.Column("page_num", sa.Integer(), nullable=True))
     op.add_column("chunks", sa.Column("bbox", sa.String(length=128), nullable=True))
     op.add_column("chunks", sa.Column("section_path", sa.String(length=512), nullable=False, server_default=""))
     op.add_column("chunks", sa.Column("table_header", sa.Text(), nullable=False, server_default=""))
     op.add_column("chunks", sa.Column("metadata_complete", sa.Boolean(), nullable=False, server_default=sa.text("0")))
-
 
 def downgrade() -> None:
     for col in ("metadata_complete", "table_header", "section_path", "bbox", "page_num"):
@@ -267,7 +261,6 @@ def test_extract_pdf_structured_has_page_num():
     assert text_secs and text_secs[0]["page_num"] == 1
     assert isinstance(text_secs[0].get("bbox"), str)  # JSON 串
 
-
 def test_extract_xlsx_has_table_header():
     """Excel → table 段带 table_header（首行）。"""
     from app.services import parse_service
@@ -324,7 +317,6 @@ def extract_pdf_structured(content: bytes) -> Tuple[list[dict], bool]:
                 total_chars += len(txt)
     is_scanned = n_pages > 0 and total_chars < n_pages * 10
     return sections, is_scanned
-
 
 def _first_row_as_header(rows: list) -> str:
     """表格首行作表头（table_header 字段，防数值丢列上下文）。"""
@@ -520,7 +512,6 @@ from app.models.document import Document
 from app.services import parse_service, chunk_service
 from app.clients import minio_client
 
-
 async def backfill(tenant: str, dry_run: bool) -> dict:
     stats = {"scanned": 0, "updated": 0, "skipped": 0, "failed": 0}
     async with async_session() as db:
@@ -556,7 +547,6 @@ async def backfill(tenant: str, dry_run: bool) -> dict:
                 print(f"[FAIL] doc={doc.id} {e}", file=sys.stderr)
                 stats["failed"] += 1
     return stats
-
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -608,7 +598,6 @@ def test_build_index_maps_position_to_chunk_id():
     assert idx == {1: "c1", 2: "c2"}
     assert idx[1] == "c1"
 
-
 def test_build_index_empty():
     from app.rag.citation_index import build_index
     assert build_index([]) == {}
@@ -630,7 +619,6 @@ mixed_search 召回后，服务端统一分配本轮局部编号 [1..N] → chun
 LLM 只能引用 [1..N]，越界由 citation_verifier 校验1 剔除。
 """
 
-
 def build_index(contexts: list[dict]) -> dict[int, str]:
     """位置编号 → chunk_id 映射。
 
@@ -642,7 +630,6 @@ def build_index(contexts: list[dict]) -> dict[int, str]:
         cid = c.get("chunkId") or c.get("chunk_id") or ""
         idx[i + 1] = cid
     return idx
-
 
 def chunk_id_of(ref_id: int, index: dict[int, str]) -> str:
     """编号 → chunk_id（越界返回空串，供校验1 判非法）。"""
@@ -738,7 +725,6 @@ def test_citation_answer_schema_parse():
     assert ans.citation_map[0].ref_id == 1
     assert ans.unverified_claim == []
 
-
 def test_parse_citation_answer_degrades_on_plain_text():
     """LLM 纯文本输出（无 JSON）→ 降级：answer_text=原文，citation_map 走 evidence_trace 反查。"""
     from app.schemas.citation import parse_citation_answer
@@ -766,13 +752,11 @@ from pydantic import BaseModel, Field
 
 from app.rag.citation import extract_sentence_sources, split_sentences
 
-
 class CitationItem(BaseModel):
     sentence: str
     ref_id: int
     chunk_id: str = ""
     metadata: dict = Field(default_factory=dict)  # doc_title/section_path/page_num/original_text
-
 
 class CitationAnswer(BaseModel):
     answer_text: str
@@ -780,9 +764,7 @@ class CitationAnswer(BaseModel):
     unverified_claim: list[str] = Field(default_factory=list)
     structured: bool = True  # True=LLM 直出 JSON；False=纯文本降级反查
 
-
 _JSON_RE = re.compile(r"\{.*\}", re.S)
-
 
 def parse_citation_answer(raw: str, index: dict[int, str], contexts: list[dict] | None = None) -> CitationAnswer:
     """解析 LLM 输出为 CitationAnswer。
@@ -884,7 +866,6 @@ def test_verify_claims_three_way(monkeypatch):
     res = _run(judge._verify_claims(["库温限值-18℃", "无关干扰项", "背景介绍"], ["资料A"], "deepseek"))
     labels = [r["label"] for r in res]
     assert labels == ["support", "contradict", "neutral"]
-
 
 def test_judge_hallucination_still_works_after_extract(monkeypatch):
     """_verify_claims 新增后，judge_hallucination 仍可调用且返回结构完整（零回归守护）。
@@ -995,7 +976,6 @@ class VerifyItem(BaseModel):
     nli_label: str = "unknown"   # support | contradict | neutral | unknown(未跑NLI)
     action: str = "keep"         # keep | drop | rewrite
 
-
 class VerifyResult(BaseModel):
     items: list[VerifyItem] = Field(default_factory=list)
     dropped_refs: list[int] = Field(default_factory=list)        # 被剔除的编号
@@ -1021,7 +1001,6 @@ def test_verify_check1_drops_out_of_range_ref(monkeypatch):
     keep = [i for i in res.items if i.action == "keep"]
     assert any(i.ref_id == 1 for i in keep)
 
-
 def test_verify_check2_drops_low_similarity(monkeypatch):
     """校验2：句 vs chunk cosine < 0.6 → drop。"""
     async def fake_embed(texts):
@@ -1038,7 +1017,6 @@ def test_verify_check2_drops_low_similarity(monkeypatch):
     res = _run(verify("完全无关句[1]", cmap, {1: "c1"}, [{"chunkId": "c1", "chunk": "x"}], "deepseek",
                       nli_enable=False))
     assert res.items[0].action == "drop"
-
 
 def test_verify_nli_contradict_drops(monkeypatch):
     """校验3：NLI 判 contradict → drop。"""
@@ -1085,7 +1063,6 @@ from app.schemas.citation import CitationItem, VerifyItem, VerifyResult
 
 # 高风险要素（数字/否定/时限/金额/免责）必须绑定引用，否则移入警示
 _HIGH_RISK = ("不", "禁", "无", "超过", "不超过", "限", "元", "天", "小时", "免责", "除外")
-
 
 async def verify(
     answer_text: str,
@@ -1195,7 +1172,6 @@ async def verify(
 
     return result
 
-
 def _high_risk_unverified(answer_text: str) -> list[str]:
     """答案中含高风险要素却无引用的句子（校验1 全 drop 时标警示）。"""
     out = []
@@ -1248,7 +1224,6 @@ def test_apply_citation_verification_disabled_returns_empty(monkeypatch):
         "冷链库温应≤-18℃[1]。", [{"chunkId": "c1", "chunk": "库温-18", "docName": "A"}], "deepseek"))
     assert ans == "冷链库温应≤-18℃[1]。"
     assert extras == {}
-
 
 def test_apply_citation_verification_enabled_includes_fields(monkeypatch):
     """CITATION_VERIFIER_ENABLE=True → extras 含 citationVerified/citationIndex/citationMap。"""
@@ -1498,7 +1473,6 @@ from app.rag.citation_index import build_index
 from app.schemas.citation import parse_citation_answer
 from app.rag.citation_verifier import verify
 
-
 async def evaluate(gate: float) -> dict:
     samples = json.loads(
         Path("backend/data/golden_citation.json").read_text(encoding="utf-8")
@@ -1533,7 +1507,6 @@ async def evaluate(gate: float) -> dict:
         "pass": (total_assoc / n) >= gate,
     }
     return report
-
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser()
@@ -1599,7 +1572,7 @@ git commit -m "feat(citation): eval_citation四样本四指标+golden集+CI门�
 
 ## Self-Review
 
-**1. Spec 覆盖检查**（对照 `docs/superpowers/specs/2026-07-18-verifiable-citation-design.md`）：
+**1. Spec 覆盖检查**（对照 `docs/design/specs/2026-07-18-verifiable-citation-design.md`）：
 
 | Spec 章节 | 覆盖 Task |
 |---|---|
@@ -1623,15 +1596,3 @@ git commit -m "feat(citation): eval_citation四样本四指标+golden集+CI门�
 - Task 6 Step 5 的 `chunk_id` 来源依赖 Milvus payload 实际字段——**实现时先 Read `milvus_client.search` 确认**，决定走「payload 直取」还是「批量查库回填」。这是计划里唯一需要实现时核实的不确定点。
 - Task 8 采纳保守做法（`judge_hallucination` 零改动），确保零回归。
 - Task 10 `_apply_citation_verification` 抽函数降低 `answer` 的测试复杂度，集成层由 Task 12 eval 端到端覆盖。
-
----
-
-## Execution Handoff
-
-Plan complete and saved to `docs/superpowers/plans/2026-07-18-verifiable-citation.md`. Two execution options:
-
-**1. Subagent-Driven (recommended)** — 每个 Task 派一个 fresh subagent 执行，Task 间我做两阶段 review（实现质量 + 是否破坏现状），快速迭代。适合这种 12 Task 跨 5 层的大计划。
-
-**2. Inline Execution** — 在本会话用 executing-plans 批量执行，带 checkpoint 给你 review。
-
-**Which approach?**

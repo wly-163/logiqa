@@ -131,7 +131,7 @@ def _cluster(items, threshold=0.82, min_size=3):
 `embed(draft_content) → Milvus insert + MySQL Chunk`，metadata 打标 `source_type='ai_evolution'`、`quality_score=0.6`、`draft_id`。
 → `status=indexed`，`chunk_id=<new>`，`indexed_at=now`。
 
-> 注：`chunk_service`/`document_service` 的精确入库函数签名在 writing-plans 阶段用 codegraph 定位确认后接入，不在本 spec 编造。
+> 注：`chunk_service`/`document_service` 的精确入库函数签名在 实现计划阶段用代码审计定位确认后接入，不在本 spec 编造。
 
 ## 7. 触发与调度（P3 全量）
 

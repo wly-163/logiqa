@@ -1,11 +1,11 @@
 # S1：通用 Agent 引擎地基（agent_runtime 抽象 + persona 驱动）
 
 - **日期**：2026-07-08
-- **状态**：设计已确认，待写实现计划（writing-plans）
+- **状态**：设计已确认，待写实现计划
 - **子项目**：S1（方案 C 拆解的第 1 个，地基）
 - **关联现状**：泛化自 [`2026-07-02-agentic-diagnose-design.md`](./2026-07-02-agentic-diagnose-design.md)（诊断专用 agent，已落地）。本 spec 把其中"刻意设计成中立接口、Spec 2/MCP 可直接包装"的 `TOOLS` 注册表正式兑现为通用 `ToolRegistry`。
 - **关联后续**：S2 问答 Agent、S3 告警处置、S4 工具审计/权限、S5 persona 管理 UI、S6 决策看板均依赖本子项目。
-- **调研工具**：codegraph（代码事实核实）+ superpowers/brainstorming（设计流程）
+- **调研工具**：代码审计 + 设计评审
 
 ---
 
@@ -43,7 +43,7 @@
 - 前端 `Diagnose.vue` **零改动**（返回结构不变）。
 - 迁移后诊断结果与思考链结构等价于迁移前（黄金回归保证）。
 
-## 3. 现状分析（codegraph 核实）
+## 3. 现状分析（代码审计 核实）
 
 `diagnose_agent_service.py` 现有结构（行号对应当前源码；设计详见 `2026-07-02-agentic-diagnose-design.md`）：
 

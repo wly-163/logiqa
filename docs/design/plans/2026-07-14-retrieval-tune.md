@@ -1,7 +1,5 @@
 # 检索质量自动调参建议（只建议模式）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:executing-plans（本机 glm-5 subagent 不可用，禁用 subagent-driven）。Steps use checkbox (`- [ ]`).
-
 **Goal:** 把检索评测/调优三座孤岛打通成"评测→扫描→建议"闭环（只建议，人工改 `.env`）。
 
 **Architecture:** `mixed_search` 加 `overrides` 可选参数（13 caller 零破坏）→ `retrieval_eval_service` 直接调它跑 golden 算 recall/MRR/nDCG → 扫描引擎扰动+开关 A/B → 报告缓存 + Admin tab + 「复制 .env 行」。
@@ -195,10 +193,8 @@ from app.services import retrieval_service
 
 _GOLDEN = Path(__file__).resolve().parent.parent.parent / "data" / "golden_qa.json"
 
-
 def _load_golden() -> list[dict]:
     return json.loads(_GOLDEN.read_text(encoding="utf-8"))
-
 
 def _recall_at_k(expect: list[str], got: list[str]) -> float:
     if not expect:
@@ -206,13 +202,11 @@ def _recall_at_k(expect: list[str], got: list[str]) -> float:
     hit = sum(1 for d in expect if d in got)
     return hit / len(expect)
 
-
 def _mrr(expect: list[str], got: list[str]) -> float:
     for i, d in enumerate(got, 1):
         if d in expect:
             return 1.0 / i
     return 0.0
-
 
 def _ndcg(relevant_docs: dict, got: list[str]) -> float:
     """分级 nDCG（relevant_docs value 1-3 为相关性等级）。"""
@@ -228,10 +222,8 @@ def _ndcg(relevant_docs: dict, got: list[str]) -> float:
         return 0.0
     return _dcg(got) / idcg
 
-
 def _mean(xs: list[float]) -> float:
     return round(sum(xs) / len(xs), 4) if xs else 0.0
-
 
 async def evaluate_over_golden(db: AsyncSession, overrides: dict | None = None, topk: int = 5) -> dict:
     golden = _load_golden()
@@ -343,10 +335,8 @@ SWITCHES = ["RERANK_ENABLE", "HYDE_ENABLE", "MULTI_QUERY_ENABLE", "SMALL_TO_BIG_
 # RRF_DENSE_WEIGHT 改变需同步 SPARSE 权重（保持归一化参考），单独处理
 _PAIRED = {"RRF_DENSE_WEIGHT": "RRF_SPARSE_WEIGHT"}
 
-
 def _current(param):
     return getattr(settings, param)
-
 
 def _build_suggestions(baseline: dict, scan: list[dict], min_improve: float) -> list[dict]:
     """对比 baseline，按四道护栏产出建议。"""
@@ -373,7 +363,6 @@ def _build_suggestions(baseline: dict, scan: list[dict], min_improve: float) -> 
             "reason": f"recall {baseline['recall']:.3f}→{best['recall']:.3f}, MRR {baseline['mrr']:.3f}→{best['mrr']:.3f}",
         })
     return suggestions
-
 
 async def run_scan(db) -> dict:
     """跑完整扫描，写报告，返回报告 dict。"""
@@ -433,7 +422,6 @@ async def run_scan(db) -> dict:
         pass
     return report
 
-
 def get_tune_report() -> dict:
     try:
         import json
@@ -487,7 +475,6 @@ RETRIEVAL_BASELINE = Gauge("logiqa_retrieval_baseline", "检索 baseline 指标"
 ```python
 from pydantic import BaseModel
 
-
 class TuneSuggestion(BaseModel):
     param: str; current: float | int | bool; suggested: float | int | bool
     metric: str; delta: float; confidence: str; reason: str
@@ -508,7 +495,6 @@ from app.models.user import User
 
 router = APIRouter(prefix="/system/retrieval", tags=["检索调参"])
 
-
 @router.post("/tune")
 @limiter.limit("1/minute")
 async def tune(request: Request, db: AsyncSession = Depends(get_db),
@@ -528,7 +514,6 @@ async def tune(request: Request, db: AsyncSession = Depends(get_db),
                 await retrieval_tune_service.run_scan(_db)
         asyncio.create_task(_run())
         return success({"mode": "background"}, "扫描已在后台运行，稍后查看报告")
-
 
 @router.get("/tune/report")
 async def tune_report(user: User = Depends(require_perm(SYSTEM_CONFIG))):

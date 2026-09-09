@@ -4,7 +4,7 @@
 - **状态**：设计已确认（4 决策），TDD 实现
 - **地基**：S1 通用 Agent 引擎（`agent_runtime`，已合入 main，见 `2026-07-08-agent-runtime-engine-design.md`）
 - **本 spec 覆盖**：S2 问答 Agent / S3 告警处置 / S4 工具审计+权限
-- **调研**：codegraph 核实接入点（`qa_service.stream_answer` / `/system/alerts/webhook` / `OperationLog`-`RewriteEvent` 范本 / `User.role`+`tenant_id`）
+- **调研**：代码审计 核实接入点（`qa_service.stream_answer` / `/system/alerts/webhook` / `OperationLog`-`RewriteEvent` 范本 / `User.role`+`tenant_id`）
 
 ## 共性
 
@@ -19,7 +19,7 @@
 ### 目标
 agent 每次工具调用可追溯（谁/何时/哪个 persona/调了啥/结果/出错没）；高风险工具按 (tenant, role) 限流。
 
-### 接入点（codegraph 核实）
+### 接入点（代码审计 核实）
 - `ToolRegistry.run`（agent_runtime.py，S1）—— 加审计钩子 + 权限检查的唯一点。
 - `User.role` + `User.tenant_id`（auth_service.register_user 已确认字段）。
 - `rewrite_event_service.log`（独立 AsyncSessionLocal bg task 范本）—— 审计照此模式。

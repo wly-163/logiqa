@@ -1,7 +1,5 @@
 # 证据溯源 L2（句级角标可点击溯源）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 激活证据溯源死代码进主问答链路——答案 `[n]` 角标可点击定位来源卡片 + 后端向量相似度自动补标 + 来源卡片补全 score/docId/chunkIdx/docType/检索来源 + hover 反向高亮。
 
 **Architecture:** 主链路内联（非异步补）。`citation.auto_cite` 对无角标句子用 `embed_texts` 批量向量相似度补标；`retrieval_service._to_item` 扩字段 + 新增纯函数 `_aggregate_srcs` 在 `rrf_fuse` 前/后做 sources 归因回填；`qa_service.answer`/`stream_answer` 把 `evidenceTrace` + 补标后 `answer` 随响应/`done` 段下发；前端改读主链路字段 + 反向高亮。
@@ -50,7 +48,6 @@
 # tests/test_citation.py
 """证据溯源 auto_cite + 配置项单测。"""
 from app.config import settings
-
 
 def test_citation_settings_defaults():
     assert settings.CITATION_AUTO_ENABLE is True
@@ -111,10 +108,8 @@ from unittest.mock import patch
 
 from app.rag import citation
 
-
 def _run(coro):
     return asyncio.run(coro)
-
 
 def test_auto_cite_all_already_cited(monkeypatch):
     """答案每句已有角标 → 不再补，trace 全支撑。"""
@@ -127,7 +122,6 @@ def test_auto_cite_all_already_cited(monkeypatch):
     assert "[1]" in annotated
     assert trace["totalSupported"] == 2
     assert trace["supportRatio"] == 1.0
-
 
 def test_auto_cite_bare_sentence_matched(monkeypatch):
     """无角标句子 → 补到最相似 chunk。"""
@@ -146,7 +140,6 @@ def test_auto_cite_bare_sentence_matched(monkeypatch):
     assert annotated.strip().endswith("[1]")   # 补到 chunk0 → [1]
     assert trace["supportRatio"] == 1.0
 
-
 def test_auto_cite_below_threshold_not_annotated(monkeypatch):
     """句子与所有 chunk 相似度都低于阈值 → 不补，保留无引用。"""
     calls = []
@@ -164,7 +157,6 @@ def test_auto_cite_below_threshold_not_annotated(monkeypatch):
     assert "[" not in annotated                   # 没补任何角标
     assert trace["totalSupported"] == 0
 
-
 def test_auto_cite_embed_failure_degrades(monkeypatch):
     """embed 异常 → 降级，返回原答案 + 仅原有角标 trace，不抛。"""
     async def boom(texts):
@@ -176,7 +168,6 @@ def test_auto_cite_embed_failure_degrades(monkeypatch):
     assert "[1]" in annotated
     assert trace["totalSupported"] == 1           # 只有原本带角标那句
     assert trace["totalSentences"] == 2
-
 
 def test_auto_cite_empty_contexts():
     """无 contexts → 原样返回，不调 embed。"""
@@ -205,7 +196,6 @@ def _cosine_mat(sent_vecs: list[list[float]], chunk_vecs: list[list[float]]) -> 
     sn = S / (np.linalg.norm(S, axis=1, keepdims=True) + 1e-10)
     cn = C / (np.linalg.norm(C, axis=1, keepdims=True) + 1e-10)
     return (sn @ cn.T).tolist()
-
 
 async def auto_cite(answer: str, contexts: list[dict],
                     threshold: float | None = None) -> tuple[str, dict]:
@@ -281,7 +271,6 @@ git commit -m "feat(citation): auto_cite 向量相似度自动补标 + 单测"
 """检索来源归因 + _to_item 扩字段单测。"""
 from app.services import retrieval_service
 
-
 def test_aggregate_srcs_merges_dense_and_bm25():
     dense = [
         {"key": ("d1", 0), "srcs": ["dense_cloud"]},
@@ -292,10 +281,8 @@ def test_aggregate_srcs_merges_dense_and_bm25():
     assert m[("d1", 0)] == ["bm25", "dense_bge", "dense_cloud"]   # 并集去重排序
     assert m[("d2", 1)] == ["bm25"]
 
-
 def test_aggregate_srcs_empty():
     assert retrieval_service._aggregate_srcs([], []) == {}
-
 
 def test_to_item_full_fields():
     h = {
@@ -310,7 +297,6 @@ def test_to_item_full_fields():
     assert item["chunkIdx"] == 3
     assert item["docType"] == "运维手册"
     assert item["sources"] == ["dense_cloud", "bm25"]
-
 
 def test_to_item_missing_fields_default_empty():
     """旧格式 hit（无 doc_type/srcs/chunk_idx）→ 字段安全缺省，不报错。"""
@@ -340,7 +326,6 @@ def _to_item(h: dict) -> dict:
         "chunkIdx": h.get("chunk_idx"),
         "sources": h.get("srcs", []),
     }
-
 
 def _aggregate_srcs(dense_hits: list[dict], sparse_hits: list[dict]) -> dict:
     """key → 排序后的检索来源列表（dense_cloud/dense_bge/bm25 并集）。

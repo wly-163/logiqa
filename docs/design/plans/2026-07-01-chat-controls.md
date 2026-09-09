@@ -1,7 +1,5 @@
 # 对话控制（停止/重新生成/编辑重提）实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: superpowers:subagent-driven-development 或 superpowers:executing-plans 逐任务实现。步骤用 `- [ ]` 跟踪。
-
 **Goal:** 给 Chat 页补「停止生成 / 重新生成 / 编辑重提（追加新轮）」三个高频操作。
 
 **Architecture:** 前端 AbortController 中断流式 fetch；重新生成/编辑重提复用现有 `/qa/answer/stream`，作为新一轮追加（保留历史）；后端仅加 `regen` 参数跳过缓存读，无 cancel 端点（客户端断连即停）。

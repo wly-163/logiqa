@@ -1,7 +1,5 @@
 # 异步任务队列（RQ + Redis）Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task (本机 glm-5 网关 subagent 不可用，禁用 subagent-driven-development)。Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 用 RQ + rq-scheduler 把散落的 11+ 处 `asyncio.create_task`/`ensure_future` 和 6+ 个 `while True` 周期 loop 收口进持久化队列，实现"重启不丢 + 背压限流 + 统一调度 + 可见性"。
 
 **Architecture:** Redis（独立 db=2 做 broker）+ 3 个独立 worker 服务（realtime/default/low，docker `scale` 控实例数=并发度）+ 1 个 scheduler 服务。FastAPI 内 `app/tasks/registry.py` 统一 `enqueue()` 入口带 `RQ_ENABLED` 双路回退；`app/tasks/handlers.py` thin sync wrapper（`asyncio.run` 适配现有 async service，零重写）。
@@ -212,7 +210,6 @@ from app.config import settings
 _bg_tasks: set = set()  # 持有回退 create_task 引用防 GC
 _queues: dict = {}      # queue_name -> rq.Queue（懒加载，RQ_ENABLED=True 时才建）
 
-
 def get_connection():
     """RQ Redis 连接（独立 db）。"""
     from redis import Redis
@@ -220,14 +217,12 @@ def get_connection():
     u = urlparse(settings.REDIS_URL)
     return Redis(host=u.hostname, port=u.port, db=settings.RQ_REDIS_DB, decode_responses=False)
 
-
 def _get_queue(name: str):
     """懒加载 rq.Queue（首次 enqueue 时建）。"""
     if name not in _queues:
         from rq import Queue
         _queues[name] = Queue(name, connection=get_connection())
     return _queues[name]
-
 
 async def enqueue(queue: str, func_name: str, **kwargs) -> str | None:
     """统一入队入口。
@@ -262,7 +257,6 @@ async def enqueue(queue: str, func_name: str, **kwargs) -> str | None:
 ```python
 """回退执行器：RQ_ENABLED=False 时，按 func_name 查 handlers 并 asyncio.run 执行。"""
 import asyncio
-
 
 async def _run_legacy(func_name: str, **kwargs):
     """回退路径：与 RQ worker 行为一致（调 handlers 的同步入口）。"""
@@ -346,11 +340,9 @@ import asyncio
 
 from app.db.session import AsyncSessionLocal
 
-
 def _run(coro):
     """在同步任务里跑 async（每 job 一个新 loop，进程级隔离）。"""
     asyncio.run(coro)
-
 
 # ---------- default 队列：LLM 重计算 ----------
 
@@ -361,7 +353,6 @@ def kg_extract(doc_id: str):
             await kg_service.extract_triples(db, doc_id)
     _run(_a())
 
-
 def eval_quality(query: str, answer: str, doc_ids: list, model_type: str):
     async def _a():
         async with AsyncSessionLocal() as db:
@@ -369,13 +360,11 @@ def eval_quality(query: str, answer: str, doc_ids: list, model_type: str):
             await online_eval_service.eval_quality(db, query, answer, doc_ids, model_type)
     _run(_a())
 
-
 def evidence_gap_collect(query: str, answer: str, confidence: str, grade: str, action: str, source: str, tenant: str):
     async def _a():
         from app.services import evidence_gap_service
         await evidence_gap_service.collect(query, answer, confidence, grade, action, source, tenant)
     _run(_a())
-
 
 def evidence_gap_ai_draft(gap_id: int):
     async def _a():
@@ -384,7 +373,6 @@ def evidence_gap_ai_draft(gap_id: int):
             await evidence_gap_service.generate_ai_draft(db, gap_id)  # upsert by gap_id（Task 10 改）
     _run(_a())
 
-
 def feedback_judge(feedback_id: int, query: str, answer: str, source_docs: list):
     async def _a():
         async with AsyncSessionLocal() as db:
@@ -392,13 +380,11 @@ def feedback_judge(feedback_id: int, query: str, answer: str, source_docs: list)
             await feedback_service.judge_bg_task(db, feedback_id, query, answer, source_docs)  # upsert（Task 10 改）
     _run(_a())
 
-
 def alert_disposal_run(disposal_id: int, summary: str, model_type: str):
     async def _a():
         from app.services import alert_disposal_service
         await alert_disposal_service.run_disposal(disposal_id, summary, model_type)  # idempotent（Task 10 改）
     _run(_a())
-
 
 # ---------- low 队列：数据落盘/审计 ----------
 
@@ -409,14 +395,12 @@ def record_token_usage(username: str, tenant: str, provider: str, in_tokens: int
             await cost_tracker_service.record_token_usage(db, username, tenant, provider, in_tokens, out_tokens)  # upsert（Task 11 改）
     _run(_a())
 
-
 def agent_tool_log(persona: str, tool: str, args: dict, result_summary: str, tenant: str):
     async def _a():
         async with AsyncSessionLocal() as db:
             from app.services import agent_tool_audit_service
             await agent_tool_audit_service.log_tool_call(db, persona, tool, args, result_summary, tenant)
     _run(_a())
-
 
 def log_archive_run():
     async def _a():
@@ -425,7 +409,6 @@ def log_archive_run():
             await log_archive_service.archive_once(db)  # 抽出单次逻辑（Task 12 改）
     _run(_a())
 
-
 # ---------- realtime 队列：用户体感 ----------
 
 def invalidate_cache(query: str):
@@ -433,7 +416,6 @@ def invalidate_cache(query: str):
         from app.services import qa_service
         await qa_service.invalidate_cache_on_dislike(query)
     _run(_a())
-
 
 def blacklist_check(query: str):
     async def _a():
@@ -501,7 +483,6 @@ Expected: FAIL
 由 logiqa-scheduler 服务启动时调用 main 入口（见 docker-compose command）。
 """
 from app.tasks import handlers
-
 
 def register_scheduled_jobs(scheduler) -> None:
     """把所有周期任务注册进 rq.scheduler.Scheduler 实例。"""
@@ -681,14 +662,12 @@ Expected: FAIL（404，路由不存在）
 ```python
 from pydantic import BaseModel
 
-
 class QueueStat(BaseModel):
     queue: str
     waiting: int
     active: int
     failed: int
     deferred: int
-
 
 class FailedJob(BaseModel):
     id: str
@@ -697,7 +676,6 @@ class FailedJob(BaseModel):
     createdAt: str
     lastError: str
     retries: int
-
 
 class ScheduledJob(BaseModel):
     id: str
@@ -721,14 +699,11 @@ from app.models.user import User
 
 router = APIRouter(prefix="/system/tasks", tags=["异步任务监控"])
 
-
 def _conn():
     from app.tasks.registry import get_connection
     return get_connection()
 
-
 def _queue_names(): return ("realtime", "default", "low")
-
 
 @router.get("/overview")
 async def overview(user: User = Depends(require_perm(RQ_VIEW))):
@@ -745,7 +720,6 @@ async def overview(user: User = Depends(require_perm(RQ_VIEW))):
             "deferred": len(DeferredJobRegistry(name, connection=_conn()).get_job_ids()),
         })
     return success(out, "查询成功")
-
 
 @router.get("/failed")
 async def failed(queue: str = "default", page: int = Query(1, ge=1), size: int = Query(20, ge=1, le=100),
@@ -769,7 +743,6 @@ async def failed(queue: str = "default", page: int = Query(1, ge=1), size: int =
             continue
     return success({"total": total, "list": list_}, "查询成功")
 
-
 @router.post("/{job_id}/requeue")
 async def requeue(job_id: str, user: User = Depends(require_perm(RQ_MANAGE))):
     from rq.job import Job
@@ -779,7 +752,6 @@ async def requeue(job_id: str, user: User = Depends(require_perm(RQ_MANAGE))):
         raise BizError(f"重投失败: {e}", 400)
     return success({"id": job_id}, "已重投")
 
-
 @router.delete("/{job_id}")
 async def discard(job_id: str, user: User = Depends(require_perm(RQ_MANAGE))):
     from rq.job import Job
@@ -788,7 +760,6 @@ async def discard(job_id: str, user: User = Depends(require_perm(RQ_MANAGE))):
     except Exception as e:
         raise BizError(f"丢弃失败: {e}", 400)
     return success({"id": job_id, "deleted": True}, "已丢弃")
-
 
 @router.get("/scheduled")
 async def scheduled(user: User = Depends(require_perm(RQ_VIEW))):
@@ -1101,13 +1072,11 @@ from rq_scheduler import Scheduler
 from app.tasks.registry import get_connection
 from app.tasks.scheduler import register_scheduled_jobs
 
-
 def main():
     sched = Scheduler(connection=get_connection(), queue="low")
     register_scheduled_jobs(sched)
     print("[rq-scheduler] 周期任务已注册，开始调度")
     sched.run()
-
 
 if __name__ == "__main__":
     main()

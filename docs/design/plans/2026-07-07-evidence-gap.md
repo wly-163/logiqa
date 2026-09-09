@@ -1,7 +1,5 @@
 # 证据补全闭环 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement task-by-task. Steps use checkbox (`- [ ]`).
-
 **Goal:** 把 confidence=medium/refused 的问答自动收集到 evidence_gap 表，AI 续写草稿 + 人工确认后同步入库（FAQ 文档 vectorize + qa_cache/Redis 双写），下次同问题命中不再证据有限/不足。
 
 **Architecture:** 新表 evidence_gap（状态机 pending→ai_drafted→synced/ignored）+ Collector（answer/stream 后自动去重写）+ Reporter（Chat 上报）+ AIDrafter（放宽检索续写）+ SyncService（复用 document_service.vectorize_document + cache_set_mysql/json）。复用现有 confidence/document_service/cache 设施。
@@ -42,7 +40,6 @@ from datetime import datetime
 from sqlalchemy import DateTime, Integer, String, Text, func
 from sqlalchemy.orm import Mapped, mapped_column
 from app.db.base import Base
-
 
 class EvidenceGap(Base):
     __tablename__ = "evidence_gap"
@@ -117,7 +114,6 @@ from app.core.obs import degraded
 from app.db.session import AsyncSessionLocal
 from app.models.evidence_gap import EvidenceGap
 
-
 async def collect(query: str, answer: str, confidence: str, grade: str, action: str,
                   source: str = "auto", tenant: str = "default") -> int:
     """去重写：同 query 已有 pending 则跳过。返回新 id（0=去重跳过）。bg task 用独立 session。"""
@@ -139,7 +135,6 @@ async def collect(query: str, answer: str, confidence: str, grade: str, action: 
         degraded("evidence_gap_collect", e)
         return 0
 
-
 async def list_gaps(status: str | None = None, page: int = 1, size: int = 20) -> dict:
     try:
         async with AsyncSessionLocal() as db:
@@ -158,7 +153,6 @@ async def list_gaps(status: str | None = None, page: int = 1, size: int = 20) ->
     except Exception as e:
         degraded("evidence_gap_list", e)
         return {"total": 0, "list": []}
-
 
 async def get_gap(gap_id: int) -> dict | None:
     try:
@@ -360,7 +354,7 @@ async def confirm_and_sync(gap_id: int, final_answer: str, operator: str,
         return {"ok": False, "msg": str(e)}
 ```
 
-- [ ] **Step 2: codegraph 确认 chunk_service.split / Document / Chunk 字段**（实现时 `codegraph explore "chunk_service split Document Chunk 字段"`，对齐签名）
+- [ ] **Step 2: 代码审计 确认 chunk_service.split / Document / Chunk 字段**（实现时 `代码审计 explore "chunk_service split Document Chunk 字段"`，对齐签名）
 
 - [ ] **Step 3: py_compile + commit**
 ```bash
@@ -470,5 +464,5 @@ git commit -m "feat(frontend): T8 Admin 证据补全 tab + Chat 上报按钮"
 
 ## Self-Review
 **1. Spec 覆盖**：§4 表→T1 ✓ §5.1 Collector→T2+T3 ✓ §5.2 Reporter→T4 ✓ §5.3 AIDrafter→T5 ✓ §5.4/5.5 确认+Sync→T6 ✓ §7 接口→T4+T7 ✓ §8 前端→T8 ✓ §10 测试→T2+T7 ✓ §13 验收→T9 ✓
-**2. Placeholder**：T6 chunk_service.split 标注"实现时 codegraph 确认签名"（唯一外部依赖，已标注），无其他 TBD
+**2. Placeholder**：T6 chunk_service.split 标注"实现时 代码审计 确认签名"（唯一外部依赖，已标注），无其他 TBD
 **3. 类型一致**：collect/ai_draft/confirm_and_sync/list_gaps/get_gap 签名跨任务一致 ✓

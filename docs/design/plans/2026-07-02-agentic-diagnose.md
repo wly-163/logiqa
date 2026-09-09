@@ -1,7 +1,5 @@
 # Agentic 诊断 实现计划
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 新增 `POST /domain/diagnose-agent`——LLM 用 function-calling 自主调用 4 个工具（检索/图谱/案例/作业单）做多轮交叉验证诊断，返回诊断结果 + 完整 `steps[]` 思考链；超限/异常降级到现有 single-pass diagnose。
 
 **Architecture:** function-calling agent 循环（自写 ~150 行，零新依赖）。Provider 加 `chat_with_tools()`；工具定义成注册表（`ToolDef`，MCP 可直接复用）；循环到 `MAX_ITER=6` 或 LLM 给最终答案为止；任何异常/超限 → 回退 `domain_service.diagnose()`。
@@ -54,7 +52,6 @@ import asyncio
 from types import SimpleNamespace
 from app.providers.llm.deepseek_llm import DeepSeekLLM
 
-
 def _make_resp(content, tool_calls=None):
     """构造 openai 风格响应。tool_calls: [(id, name, arguments_json_str), ...] 或 None"""
     tcs = None
@@ -63,7 +60,6 @@ def _make_resp(content, tool_calls=None):
                for t in tool_calls]
     msg = SimpleNamespace(content=content, tool_calls=tcs)
     return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
-
 
 def test_chat_with_tools_parses_tool_calls(monkeypatch):
     p = DeepSeekLLM()
@@ -80,7 +76,6 @@ def test_chat_with_tools_parses_tool_calls(monkeypatch):
     assert r["content"] == "我先查规程"
     assert r["tool_calls"] == [{"id": "call_1", "name": "search_regulation", "arguments": {"query": "AGV库温超温"}}]
 
-
 def test_chat_with_tools_no_tool_calls(monkeypatch):
     p = DeepSeekLLM()
 
@@ -91,7 +86,6 @@ def test_chat_with_tools_no_tool_calls(monkeypatch):
     r = asyncio.run(p.chat_with_tools([{"role": "user", "content": "x"}], []))
     assert r["tool_calls"] is None
     assert r["content"].startswith("最终诊断")
-
 
 def test_chat_with_tools_bad_json_args(monkeypatch):
     """arguments 非法 JSON → 返回空 dict，不崩"""
@@ -179,7 +173,6 @@ git commit -m "feat(provider): chat_with_tools 支持 function-calling（agent �
 import asyncio
 from app.services import diagnose_agent_service as svc
 
-
 # ---------- 工具层 ----------
 def test_tool_search_regulation(monkeypatch):
     async def fake_mixed(db, query, topk, **kw):
@@ -188,20 +181,17 @@ def test_tool_search_regulation(monkeypatch):
     out = asyncio.run(svc._t_search_regulation(db=None, model_type=None, query="AGV库温超温"))
     assert "库温超 -18℃" in out and "AGV规程" in out
 
-
 def test_tool_search_regulation_empty(monkeypatch):
     async def fake_mixed(db, query, topk, **kw): return []
     monkeypatch.setattr(svc.retrieval_service, "mixed_search", fake_mixed)
     out = asyncio.run(svc._t_search_regulation(db=None, model_type=None, query="无"))
     assert "未检索到" in out
 
-
 def test_tool_query_equipment_graph(monkeypatch):
     async def fake_ctx(query, topk=8): return ["AGV --发生--> 风扇故障", "风扇故障 --表现为--> 过热"]
     monkeypatch.setattr(svc.kg_service, "graph_context", fake_ctx)
     out = asyncio.run(svc._t_query_equipment_graph(db=None, model_type=None, entity="AGV"))
     assert "风扇故障" in out
-
 
 def test_tool_search_similar_case(monkeypatch):
     async def fake_case(db, symptom, model_type, topk):
@@ -210,7 +200,6 @@ def test_tool_search_similar_case(monkeypatch):
     out = asyncio.run(svc._t_search_similar_case(db=None, model_type=None, symptom="AGV过热"))
     assert "风扇停转" in out
 
-
 def test_tool_draft_ticket(monkeypatch):
     async def fake_ticket(db, task, model_type, topk):
         return {"ticket": {"device": "AGV-01", "steps": ["停线", "复核"], "safety": ["双人复核高价值件"], "risks": ["错发错配"]}}
@@ -218,11 +207,9 @@ def test_tool_draft_ticket(monkeypatch):
     out = asyncio.run(svc._t_draft_ticket(db=None, model_type=None, task="AGV-01转维保"))
     assert "AGV-01" in out and "停线" in out
 
-
 def test_run_tool_dispatch_unknown():
     out = asyncio.run(svc._run_tool(None, None, "no_such_tool", {}))
     assert "未知工具" in out
-
 
 def test_run_tool_handles_handler_error(monkeypatch):
     async def boom(db, model_type, **a): raise RuntimeError("下游挂了")
@@ -251,31 +238,26 @@ from app.services import retrieval_service, kg_service, domain_service
 
 _TOPK = 5
 
-
 # ---------- 工具实现（包装现有 service，返回 LLM 可读摘要）----------
 async def _t_search_regulation(db, model_type, query):
     """检索运维规程/手册。"""
     ctx = await retrieval_service.mixed_search(db, query, _TOPK, model_type=model_type)
     return _fmt_chunks(ctx) or "未检索到相关规程"
 
-
 async def _t_query_equipment_graph(db, model_type, entity):
     """查设备-故障-处置因果链（Neo4j 图谱）。"""
     rows = await kg_service.graph_context(entity, 8)
     return "\n".join(rows) if rows else "图谱中无该设备相关因果链"
-
 
 async def _t_search_similar_case(db, model_type, symptom):
     """查历史相似故障案例。"""
     res = await domain_service.similar_case(db, symptom, model_type, _TOPK)
     return _fmt_cases(res.get("cases", [])) or "未找到相似历史案例"
 
-
 async def _t_draft_ticket(db, model_type, task):
     """生成处置作业单草案。"""
     res = await domain_service.generate_ticket(db, task, model_type, _TOPK)
     return _fmt_ticket(res.get("ticket", {})) or "生成作业单草案失败"
-
 
 _HANDLERS = {
     "search_regulation": _t_search_regulation,
@@ -283,7 +265,6 @@ _HANDLERS = {
     "search_similar_case": _t_search_similar_case,
     "draft_ticket": _t_draft_ticket,
 }
-
 
 async def _run_tool(db, model_type, name, args):
     """分发执行；工具失败返回错误串不抛（循环不崩）。"""
@@ -296,7 +277,6 @@ async def _run_tool(db, model_type, name, args):
         degraded(f"agent_tool_{name}", e)
         return f"工具 {name} 执行失败: {type(e).__name__}: {e}"
 
-
 # ---------- 摘要格式化 ----------
 def _fmt_chunks(ctx):
     if not ctx:
@@ -304,13 +284,11 @@ def _fmt_chunks(ctx):
     return "\n".join(f"[{i}] {(c.get('docName') or '')}: {(c.get('chunk') or '')[:200]}"
                      for i, c in enumerate(ctx[:_TOPK], 1))
 
-
 def _fmt_cases(cases):
     if not cases:
         return ""
     return "\n".join(f"[{i}] {(c.get('docName') or '')}: {(c.get('text') or '')[:200]}"
                      for i, c in enumerate(cases[:_TOPK], 1))
-
 
 def _fmt_ticket(ticket):
     if not ticket:
@@ -360,10 +338,8 @@ class _ScriptedProvider:
         content, tcs = self.script.pop(0)
         return {"content": content, "tool_calls": tcs}
 
-
 def _tc(id, name, **args):
     return {"id": id, "name": name, "arguments": args}
-
 
 def test_agent_loop_happy_path(monkeypatch):
     # 第1轮调检索，第2轮调图谱，第3轮 final
@@ -384,7 +360,6 @@ def test_agent_loop_happy_path(monkeypatch):
     assert r["diagnosis"]["summary"] == "冷却不足致过热"
     assert r["diagnosis"]["causes"][0]["name"] == "制冷系统故障"
 
-
 def test_agent_loop_degrades_on_max_iter(monkeypatch):
     # 永远要调工具 → 触发 MAX_ITER → 降级
     prov = _ScriptedProvider([("继续查", [_tc(str(i), "search_regulation", query="x")]) for _ in range(99)])
@@ -401,7 +376,6 @@ def test_agent_loop_degrades_on_max_iter(monkeypatch):
     assert r["degraded"] is True
     assert r["degradeReason"] == "max_iter"
     assert fallback_called == ["循环症状"]
-
 
 def test_agent_loop_degrades_on_exception(monkeypatch):
     class _Boom:
@@ -461,13 +435,11 @@ _AGENT_SYSTEM = """你是仓储物流异常诊断专家。基于异常症状，�
 2) 最终诊断必须输出严格 JSON：{"causes":[{"name":"可能原因","likelihood":"高/中/低","evidence":"资料依据","handling":"处置措施"}],"summary":"总体判断","risks":["风险点"]}
 3) 原因按可能性从高到低排序；只基于工具收集的证据，证据不足如实说明；高风险处置（停线/封库/波次切换）须在 risks 标注。"""
 
-
 def _to_openai_tool_calls(tool_calls):
     """把内部 dict 形式 tool_calls 转回 openai assistant 消息需要的结构。"""
     return [{"id": tc["id"], "type": "function",
              "function": {"name": tc["name"], "arguments": json.dumps(tc.get("arguments") or {}, ensure_ascii=False)}}
             for tc in tool_calls]
-
 
 def _inc_metric(iterations):
     try:
@@ -476,7 +448,6 @@ def _inc_metric(iterations):
         metrics.AGENT_ITERS.observe(iterations)   # Task 4 定义 AGENT_ITERS；此前为 no-op
     except Exception:
         pass
-
 
 async def diagnose_agent(db, symptom, model_type=None):
     """Agentic 诊断：LLM 自主调工具多轮验证 → {diagnosis, steps[], iterations, degraded, latencyMs}。"""
@@ -519,7 +490,6 @@ async def diagnose_agent(db, symptom, model_type=None):
     return {"symptom": symptom, "diagnosis": diagnosis, "steps": steps, "iterations": iters,
             "degraded": False, "degradeReason": None,
             "latencyMs": int((time.perf_counter() - t0) * 1000)}
-
 
 async def _fallback(db, symptom, model_type, reason, steps, t0):
     """降级：调现有 single-pass diagnose，保留已收集 steps。"""

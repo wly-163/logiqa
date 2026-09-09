@@ -1,7 +1,5 @@
 # 智能问答历史 · 批量软删 Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
-
 **Goal:** 给智能问答历史加「批量软删」——会话粒度 + 消息粒度两个批量删除端点，DB 行保留（`is_deleted` 标记），列表/历史过滤掉；现有单个删除一并改为软删。
 
 **Architecture:** `Conversation`/`Message` 两表各加 `is_deleted: bool` 列（走 `init_db._COLUMN_MIGRATIONS` 幂等补列，不动 Alembic）。`conversation_service` 加 `is_deleted==False` 过滤、把单删改软删、新增两个 `batch_delete_*` 函数（均按 `username` 归属过滤）。路由加两个 `POST /qa/.../batch-delete` 端点（30/min 限流 + 操作日志）。前端 `Chat.vue` 侧栏会话列表 + 会话内 user 消息各加 checkbox + 批量删除按钮。
@@ -63,7 +61,6 @@ git checkout -b feat/chat-history-softdelete
 
 ```python
 """智能问答历史软删：纯函数测试（模型属性 + schema）。DB 耦合逻辑靠 Task6 端到端验证。"""
-
 
 def test_conversation_model_has_soft_delete_column():
     """Conversation / Message 两模型都应有 is_deleted 列（mapped_column 创建类属性，import 即可断言）。"""
@@ -169,7 +166,6 @@ def test_batch_delete_request_accepts_ids():
 
     req = BatchDeleteRequest(ids=["conv1", "conv2"])
     assert req.ids == ["conv1", "conv2"]
-
 
 def test_batch_delete_request_requires_ids():
     import pytest
@@ -311,7 +307,6 @@ async def delete_conversation(db: AsyncSession, username: str, conversation_id: 
 ```python
 _MAX_BATCH = 200  # 单次批量删除上限（防超长 IN 列表）
 
-
 async def batch_delete_conversations(db: AsyncSession, username: str, ids: list[str]) -> int:
     """批量软删会话（含其下消息）。仅删本人会话；返回实际软删条数。"""
     if not ids:
@@ -340,7 +335,6 @@ async def batch_delete_conversations(db: AsyncSession, username: str, ids: list[
     )
     await db.commit()
     return res.rowcount or 0
-
 
 async def batch_delete_messages(db: AsyncSession, username: str, ids: list[str]) -> int:
     """批量软删消息。归属校验：只删属于该用户会话下的消息；返回实际软删条数。"""
@@ -435,7 +429,6 @@ async def batch_delete_convs(
     n = await conversation_service.batch_delete_conversations(db, user.username, body.ids)
     await write_log(db, user.username, "批量删除会话", f"{n} 条")
     return success({"deleted": n}, f"已删除 {n} 条")
-
 
 @router.post("/messages/batch-delete")
 @limiter.limit("30/minute")
@@ -705,7 +698,7 @@ Expected: UI 行为符合预期，无控制台报错。
 
 - [ ] **Step 9: （无需提交；验证通过即可合并）**
 
-全部通过后执行合并（见 Execution Handoff 后的 `finishing-a-development-branch`）。
+全部通过后执行合并。
 
 ---
 
