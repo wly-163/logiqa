@@ -38,17 +38,17 @@ sequenceDiagram
     AMS->>R: ZADD memory:hot:zhang {fact_id: ts}
     AMS->>DB: INSERT agent_memory（审计+容量管理）
 
-%% ===== N2: Agent 发现外部 MCP tool → 注册 → 调用 mock_scada =====
+%% ===== N2: Agent 发现外部 MCP tool → 注册 → 调用 mock_iot =====
 sequenceDiagram
     participant AR as agent_runtime
     participant MC as mcp_client
     participant MR as mcp_registry
     participant TR as ToolRegistry
-    participant MS as mock_scada_server
+    participant MS as mock_iot_server
     participant U as 用户
 
     Note over MR,MS: 启动时初始化
-    MR->>MR: load_from_config() → MCP_SERVERS=["mock_scada://localhost:9100"]
+    MR->>MR: load_from_config() → MCP_SERVERS=["mock_iot://localhost:9100"]
     MC->>MR: discover(servers)
     MC->>MS: MCP list_tools 请求
     MS-->>MC: [{name:"query_telemetry", inputSchema:{deviceId}}]
@@ -56,7 +56,7 @@ sequenceDiagram
     MC->>TR: register(Tool("query_telemetry", ...))
     TR-->>MC: 注册成功
 
-    U->>AR: "雷雨天气下线路SLA违约，查实时遥测"
+    U->>AR: "干线延误触发SLA预警，查实时遥测"
     AR->>TR: schemas_for(persona.allowed_tools + external_tools)
     TR-->>AR: [search_regulation, query_telemetry, ...]
     AR->>AR: LLM 决定调用 query_telemetry(deviceId="lane_rdc_east_01")

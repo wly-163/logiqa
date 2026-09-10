@@ -1,23 +1,36 @@
-"""开源门面：用户可见文案与 README 不得残留电网口径或无法复现的评测数字。"""
+"""开源门面：用户可见文案与 README 须保持仓配物流口径，且不写无法复现的评测数字。"""
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 FRONTEND = ROOT / "frontend" / "src"
 README = ROOT / "README.md"
 
-STALE = ("调度/检修", "检修规程")
+# 非仓配作业票据/组织称谓，避免与一线仓储用语混淆。
+# 不扫「调度单号」「调度员」——仓储调度是物流本义。
+OFF_DOMAIN = ("调度/检修", "检修规程", "工作票", "操作票", "两票", "调度室", "转检修")
+SCAN_EXTRA = (
+    ROOT / "tests" / "test_acl.py",
+    ROOT / "tests" / "test_agent_runtime.py",
+    ROOT / "kb_seed" / "seed_kb.py",
+)
 
 
-def test_frontend_has_no_grid_dept_or_doc_type():
+def _scan(path: Path) -> list[str]:
+    text = path.read_text(encoding="utf-8")
+    return [f"{path.relative_to(ROOT)}: {token}" for token in OFF_DOMAIN if token in text]
+
+
+def test_frontend_stays_on_logistics_copy():
     hits = []
     for path in FRONTEND.rglob("*"):
         if path.suffix not in {".vue", ".js"}:
             continue
-        text = path.read_text(encoding="utf-8")
-        for token in STALE:
-            if token in text:
-                hits.append(f"{path.relative_to(ROOT)}: {token}")
-    assert hits == [], "界面仍有电网时期部门/文档类型：\n" + "\n".join(hits)
+        hits.extend(_scan(path))
+    for path in SCAN_EXTRA:
+        hits.extend(_scan(path))
+    acl = (ROOT / "tests" / "test_acl.py").read_text(encoding="utf-8")
+    assert "检修" not in acl and "调度" not in acl
+    assert hits == [], "发现偏离仓配口径的文案：\n" + "\n".join(hits)
 
 
 def test_seed_prefixes_are_logistics():

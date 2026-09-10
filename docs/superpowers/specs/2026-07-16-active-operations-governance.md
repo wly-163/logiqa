@@ -45,14 +45,14 @@ Token 模式发送 `X-Tenant-Id` 与 `X-Event-Token`。HMAC 模式发送 `X-Tena
 ```json
 {
   "eventId": "WMS-20260716-001",
-  "source": "scada",
+  "source": "iot",
   "eventType": "temperature_alarm",
   "severity": "major",
   "occurredAt": "2026-07-16T09:30:00+08:00",
   "title": "冷链库A库温越限",
   "summary": "冷链库温达到 -12℃（超温阈值）",
   "payload": {"deviceId": "agv_01"},
-  "measurements": {"oilTemperature": 92}
+  "measurements": {"coldChainTemp": 92}
 }
 ```
 

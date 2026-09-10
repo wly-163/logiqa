@@ -294,7 +294,7 @@ def test_draft_ticket_wraps_domain(monkeypatch):
     async def fake_ticket(db, task, mt, topk):
         return {"ticket": {"device": "AGV-01", "steps": ["断开分拣设备"], "safety": ["复核"], "risks": []}}
     monkeypatch.setattr(agent_tools.domain_service, "generate_ticket", fake_ticket)
-    out = asyncio.run(agent_tools._t_draft_ticket(None, None, task="转检修"))
+    out = asyncio.run(agent_tools._t_draft_ticket(None, None, task="转维保"))
     assert "AGV-01" in out and "断开开关" in out
 
 
@@ -384,7 +384,7 @@ _SCHEMA_SYMPTOM = {"type": "object",
                    "properties": {"symptom": {"type": "string", "description": "故障症状描述"}},
                    "required": ["symptom"]}
 _SCHEMA_TASK = {"type": "object",
-                "properties": {"task": {"type": "string", "description": "操作任务，如 'AGV-01由运行转检修'"}},
+                "properties": {"task": {"type": "string", "description": "操作任务，如 'AGV-01由运行转维保'"}},
                 "required": ["task"]}
 
 

@@ -39,12 +39,12 @@
 |---|---|---|---|
 | 方向 | server（暴露能力）+ client（消费外部）都做？ | **server 和 client 都做，但 client 先做框架 + 示例 mock server** | server 方向是本系统成为"仓储物流领域首个 MCP server"的生态先发点，价值明确且 `agent_tools.py` 的 ToolRegistry.schema 已是 OpenAI 格式，转换成本低。client 方向若配套接真实外部系统（WMS/TMS/IoT）需各系统开放接口，本次周期内无法落实，先做框架+mock 验证链路，真实接入留后续迭代 |
 | server 暴露范围 | 暴露哪些能力？ | **首批暴露 4 个工具 + 图谱查询 + 混合检索（共 6 个），建票(draft_ticket)带权限** | 4 个工具已封装好可直接转 MCP schema；`kg_service.graph_context` 和 `retrieval_service.mixed_search` 是本系统核心能力，暴露后外部 Agent 可消费。建票是写操作（生成作业单草案），按现有 `tool_permissions` 机制带 role=admin 限制 |
-| client 真实接入 | 接真实外部系统？ | **不接，先做 mock MCP server 示例（如 mock_scada_server（原 SCADA 类实时接入，现对接 WMS/IoT）提供遥测数据）** | 真实 WMS/TMS 接口需甲方授权与联调，超出本次范围。mock server 用于验证 client 发现→注册→调用链路完整性，并为后续真实接入提供模板 |
+| client 真实接入 | 接真实外部系统？ | **不接，先做 mock MCP server 示例（如 mock_iot_server 提供 WMS/IoT 遥测数据）** | 真实 WMS/TMS 接口需甲方授权与联调，超出本次范围。mock server 用于验证 client 发现→注册→调用链路完整性，并为后续真实接入提供模板 |
 
 **In-scope：**
 - `backend/app/mcp/server.py`：6 个能力包装为 MCP tools/resources
 - `backend/app/mcp/client.py`：从 registry 发现 server → 动态注册进 ToolRegistry → agent_runtime 无感调用
-- 1 个 mock MCP server 示例（mock_scada，提供设备遥测查询）
+- 1 个 mock MCP server 示例（mock_iot，提供设备遥测查询）
 - `providers/factory.py` 旁新增 `mcp_registry`，settings 增 `MCP_SERVERS` 配置项
 
 **Out-of-scope：**
@@ -71,7 +71,7 @@
 
 **Out-of-scope：**
 - 真实 BIM/CAD/glTF 模型导入（预留接口，本次不实现转换）
-- 户内站/末端配送站等其他场景模板
+- 冷库/前置仓等其他场景模板
 - AR/VR 空间交互（具身智能方向，独立功能）
 - 设备实时遥测数据流（WMS/IoT 对接，依赖 N2 client 真实接入）
 - 巡检机器人路径规划可视化

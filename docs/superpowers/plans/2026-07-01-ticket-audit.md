@@ -57,7 +57,7 @@
 import asyncio
 from app.services import ticket_audit_service as svc
 
-_OP_TICKET = """作业任务：AGV-01由运行转检修
+_OP_TICKET = """作业任务：AGV-01由运行转维保
 调度单号：DD-2026-001
 作业人：张三
 作业步骤：
@@ -704,16 +704,16 @@ git commit -m "feat(ticket-audit): 审核端点 POST /domain/ticket/audit（admi
 `backend/data/golden_tickets.json`：
 ```json
 [
-  {"text": "作业任务：AGV-01由运行转检修\n调度单号：DD-2026-001\n作业人：张三\n作业步骤：\n1. 断开发运侧分拣设备\n2. 复核库存\n3. 封库隔离\n安全措施：\n- 双人复核高价值件\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "pass"},
+  {"text": "作业任务：AGV-01由运行转维保\n调度单号：DD-2026-001\n作业人：张三\n作业步骤：\n1. 断开发运侧分拣设备\n2. 复核库存\n3. 封库隔离\n安全措施：\n- 双人复核高价值件\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "pass"},
   {"text": "作业任务：2号干线检修\n调度单号：DD-2026-002\n作业负责人：李四\n作业步骤：\n1. 停线\n2. 复核\n3. 封库\n危险点：\n- 叉车混行\n", "ticketType": "作业单", "expect": "pass"},
   {"text": "调度单号：DD-2026-003\n作业人：王五\n作业步骤：\n1. 断开分拣设备\n2. 复核\n3. 封库隔离\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
-  {"text": "作业任务：干线转检修\n调度单号：DD-2026-004\n作业人：赵六\n作业步骤：\n1. 封库隔离\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
-  {"text": "作业任务：拣选区转检修\n调度单号：DD-2026-005\n作业人：孙七\n作业步骤：\n1. 封库\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
+  {"text": "作业任务：干线转维保\n调度单号：DD-2026-004\n作业人：赵六\n作业步骤：\n1. 封库隔离\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
+  {"text": "作业任务：拣选区转维保\n调度单号：DD-2026-005\n作业人：孙七\n作业步骤：\n1. 封库\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
   {"text": "调度单号：DD-2026-006\n作业人：周八\n作业步骤：\n1. 封库隔离\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "fail"},
   {"text": "作业人：吴九\n作业步骤：\n1. 封库隔离\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "fail"},
-  {"text": "作业任务：3号库位转检修\n作业步骤：\n1. 封库隔离\n2. 封库\n3. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "fail"},
+  {"text": "作业任务：3号库位转维保\n作业步骤：\n1. 封库隔离\n2. 封库\n3. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "fail"},
   {"text": "作业任务：干线检修\n调度单号：DD-2026-009\n越库作业\n作业步骤：\n1. 停线\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "warn"},
-  {"text": "作业任务：4号库位转检修\n调度单号：DD-2026-010\n作业步骤：\n1. 停线\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "pass"}
+  {"text": "作业任务：4号库位转维保\n调度单号：DD-2026-010\n作业步骤：\n1. 停线\n2. 复核\n危险点：\n- 错发错配\n", "ticketType": "作业单", "expect": "pass"}
 ]
 ```
 （说明：#6 缺任务+SEQ_001=2 critical→fail；#7 缺任务+缺调度+SEQ_001→fail；#8 SEQ_001+SEQ_002+缺调度+缺操作人→fail；#9 BLOCK_001+缺操作人=2 major→warn(70)；#10 缺操作人=1 major→pass(85)）

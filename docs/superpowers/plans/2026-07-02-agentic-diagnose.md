@@ -215,7 +215,7 @@ def test_tool_draft_ticket(monkeypatch):
     async def fake_ticket(db, task, model_type, topk):
         return {"ticket": {"device": "AGV-01", "steps": ["停线", "复核"], "safety": ["双人复核高价值件"], "risks": ["错发错配"]}}
     monkeypatch.setattr(svc.domain_service, "generate_ticket", fake_ticket)
-    out = asyncio.run(svc._t_draft_ticket(db=None, model_type=None, task="AGV-01转检修"))
+    out = asyncio.run(svc._t_draft_ticket(db=None, model_type=None, task="AGV-01转维保"))
     assert "AGV-01" in out and "停线" in out
 
 
@@ -451,7 +451,7 @@ TOOLS = [
         "name": "draft_ticket",
         "description": "生成处置作业单草案（步骤/安措/风险）。诊断基本明确、需要处置步骤时调用。",
         "parameters": {"type": "object",
-                       "properties": {"task": {"type": "string", "description": "操作任务，如 'AGV-01由运行转检修'"}},
+                       "properties": {"task": {"type": "string", "description": "操作任务，如 'AGV-01由运行转维保'"}},
                        "required": ["task"]}}},
 ]
 

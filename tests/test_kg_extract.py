@@ -94,7 +94,7 @@ def test_extract_pipeline_drops_noise_and_canonicalizes(monkeypatch):
 
 
 def test_kg_prompt_uses_logistics_relations():
-    """抽取提示词与物流关系白名单对齐，不含电网时期关系。"""
+    """抽取提示词与物流关系白名单对齐，不含离域关系词。"""
     prompt = svc._KG_PROMPT_V2
     for rel in ("作业步骤", "SLA", "预警阈值", "上游", "下游", "调拨"):
         assert rel in prompt

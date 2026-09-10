@@ -121,7 +121,7 @@ agent_runtime.py run_agent():
     {
       "deviceId": "agv_01",
       "name": "AGV-01",
-      "type": "main_transformer",
+      "type": "agv",
       "area": "agv_aisle",
       "position": [0, 1.5, 0],
       "size": [2.5, 3, 2.5],
@@ -136,7 +136,7 @@ agent_runtime.py run_agent():
 
 ### 1.4 N2 MCP 工具总线（P1，Week4）
 
-**核心思路：** 双向 — server 方向把 6 个能力暴露为 MCP tools（4 工具 + 图谱查询 + 混合检索），client 方向做框架+mock_scada 示例。用 MCP Python SDK 实现标准协议，schema 转换层把 OpenAI tool schema ↔ MCP tool schema 互转。
+**核心思路：** 双向 — server 方向把 6 个能力暴露为 MCP tools（4 工具 + 图谱查询 + 混合检索），client 方向做框架+mock_iot 示例。用 MCP Python SDK 实现标准协议，schema 转换层把 OpenAI tool schema ↔ MCP tool schema 互转。
 
 **框架选型：**
 
@@ -149,7 +149,7 @@ agent_runtime.py run_agent():
 - **Server 方向** `mcp/server.py`：用 `@mcp.tool()` 装饰器包装现有 6 个能力，handler 内调 agent_tools 的 Tool.handler / kg_service.graph_context / retrieval_service.mixed_search。鉴权用简单 token + IP 白名单（PRD Q3 确认）
 - **Client 方向** `mcp/client.py`：启动时从 `MCP_SERVERS` 配置发现外部 MCP server → 列出其 tools → schema 转换为 OpenAI 格式 → 注册进 `ToolRegistry` → `agent_runtime` 无感调用
 - **Registry** `mcp/registry.py`：配置驱动的 server 列表管理，settings 增 `MCP_SERVERS` JSON 配置项
-- **Mock server** `mcp/mock_scada_server.py`：示例 MCP server，提供 `query_telemetry(device_id)` 返回模拟遥测数据
+- **Mock server** `mcp/mock_iot_server.py`：示例 MCP server，提供 `query_telemetry(device_id)` 返回模拟遥测数据
 
 **Schema 转换约定：**
 
@@ -183,7 +183,7 @@ def openai_to_mcp(oai_tool: dict) -> dict:
 | 5 | `backend/app/mcp/server.py` | N2 | MCP Server：6 能力暴露 + token 鉴权 |
 | 6 | `backend/app/mcp/client.py` | N2 | MCP Client：发现→注册→调用外部工具 |
 | 7 | `backend/app/mcp/registry.py` | N2 | MCP Server 注册表 + 配置管理 |
-| 8 | `backend/app/mcp/mock_scada_server.py` | N2 | 示例 mock MCP server（遥测查询） |
+| 8 | `backend/app/mcp/mock_iot_server.py` | N2 | 示例 mock MCP server（遥测查询） |
 | 9 | `backend/app/services/twin_service.py` | N3 | 设备-空间映射 + 状态聚合 + 告警推送 |
 | 10 | `backend/app/routers/twin.py` | N3 | 数字孪生 API（场景/设备详情/订阅） |
 | 11 | `backend/app/data/warehouse_layout.json` | N3 | 华东RDC 园区布局模板（~30 设备坐标） |
@@ -407,7 +407,7 @@ sequenceDiagram
     AMS->>DB: INSERT agent_memory（审计+容量管理）
 ```
 
-### 4.2 N2：Agent 发现外部 MCP tool → 注册 → 调用 mock_scada
+### 4.2 N2：Agent 发现外部 MCP tool → 注册 → 调用 mock_iot
 
 ```mermaid
 sequenceDiagram
@@ -415,11 +415,11 @@ sequenceDiagram
     participant MC as mcp_client
     participant MR as mcp_registry
     participant TR as ToolRegistry
-    participant MS as mock_scada_server
+    participant MS as mock_iot_server
     participant U as 用户
 
     Note over MR,MS: 启动时初始化
-    MR->>MR: load_from_config() → MCP_SERVERS=["mock_scada://localhost:9100"]
+    MR->>MR: load_from_config() → MCP_SERVERS=["mock_iot://localhost:9100"]
     MC->>MR: discover(servers)
     MC->>MS: MCP list_tools 请求
     MS-->>MC: [{name:"query_telemetry", inputSchema:{deviceId}}]
@@ -584,7 +584,7 @@ graph TD
 | **T02** | N4 | N4 LLM 全链路可观测性 | 新建 `core/otel_genai.py`（trace_span 装饰器 + trace_id contextvar + 采样策略 + init_otel）；在 3 个 LLM provider 子类包 LLM span；retrieval_service 包 retrieve span；query_rewrite 包 rewrite span；rerank 包 rerank span；agent_runtime 包 agent span；obs.degraded() 输出 span event；online_eval/cost_tracker/judge 结果附加 span attribute；RetrievalDebug.vue 升级为统一 trace 树（从 Langfuse API 拉 trace 数据渲染 span 树）；Grafana LLM 质量面板 JSON | T01 | P0 | 5 人天 | `backend/app/core/otel_genai.py`[新建]<br/>`backend/app/providers/base.py`[修改]<br/>`backend/app/providers/llm/deepseek_llm.py`[修改]<br/>`backend/app/services/retrieval_service.py`[修改]<br/>`backend/app/core/obs.py`[修改]<br/>`frontend/src/views/RetrievalDebug.vue`[修改] |
 | **T03** | N1 | N1 Agent 长期记忆层 | 新建 `agent_memory_service.py`（extract_facts/consolidate/recall/forget/decay + Milvus memory_collection + Neo4j user→pref→entity + Redis 热记忆）；agent_runtime.py L177 注入 recall + 结束后 fire-and-forget extract_and_consolidate；新建 `routers/memory.py`（列表/删除/统计 API）；milvus_client 新增 memory_collection 操作；neo4j_client 新增用户偏好图操作；Admin.vue 新增"记忆"Tab（只读列表+软删除） | T01 | P0 | 6 人天 | `backend/app/services/agent_memory_service.py`[新建]<br/>`backend/app/routers/memory.py`[新建]<br/>`backend/app/services/agent_runtime.py`[修改]<br/>`frontend/src/views/Admin.vue`[修改] |
 | **T04** | N3 | N3 数字孪生仓储园区 3D | 新建 `twin_service.py`（设备-空间映射+状态聚合+告警推送+故障链）；新建 `routers/twin.py`（场景/设备详情/订阅 API）；新建 `warehouse_layout.json`（~30 设备坐标模板）；新建 `DigitalTwin.vue`（复用 KgGraph3D Three.js 引擎，简化几何体+着色+告警闪烁+传播链高亮+设备详情侧栏）；router/index.js 新增 /twin 路由；ws_manager 新增 twin 通道 | T01 | P1 | 6 人天 | `frontend/src/views/DigitalTwin.vue`[新建]<br/>`backend/app/services/twin_service.py`[新建]<br/>`backend/app/routers/twin.py`[新建]<br/>`backend/app/data/warehouse_layout.json`[新建]<br/>`frontend/src/router/index.js`[修改] |
-| **T05** | N2 | N2 MCP 工具总线 | 新建 `mcp/server.py`（6 能力暴露+token 鉴权）；新建 `mcp/client.py`（发现→schema转换→注册→调用）；新建 `mcp/registry.py`（配置驱动 server 列表）；新建 `mcp/mock_scada_server.py`（示例遥测查询）；agent_tools.py ToolRegistry 支持动态注册外部 MCP tool；factory.py 旁初始化 MCP registry | T01 | P1 | 5 人天 | `backend/app/mcp/server.py`[新建]<br/>`backend/app/mcp/client.py`[新建]<br/>`backend/app/mcp/registry.py`[新建]<br/>`backend/app/mcp/mock_scada_server.py`[新建]<br/>`backend/app/services/agent_tools.py`[修改] |
+| **T05** | N2 | N2 MCP 工具总线 | 新建 `mcp/server.py`（6 能力暴露+token 鉴权）；新建 `mcp/client.py`（发现→schema转换→注册→调用）；新建 `mcp/registry.py`（配置驱动 server 列表）；新建 `mcp/mock_iot_server.py`（示例遥测查询）；agent_tools.py ToolRegistry 支持动态注册外部 MCP tool；factory.py 旁初始化 MCP registry | T01 | P1 | 5 人天 | `backend/app/mcp/server.py`[新建]<br/>`backend/app/mcp/client.py`[新建]<br/>`backend/app/mcp/registry.py`[新建]<br/>`backend/app/mcp/mock_iot_server.py`[新建]<br/>`backend/app/services/agent_tools.py`[修改] |
 
 ### 排期映射
 
@@ -751,7 +751,7 @@ async def _mcp_tool_handler(db, model_type, **args):
     {
       "deviceId": "agv_01",
       "name": "AGV-01",
-      "type": "main_transformer",  # 用于选择图标/几何体尺寸
+      "type": "agv",  # 用于选择图标/几何体尺寸
       "area": "agv_aisle",
       "position": [0, 1.5, 0],     # 相对于 area 的局部坐标
       "size": [2.5, 3, 2.5],       # 盒子尺寸 [w, h, d]
@@ -764,7 +764,7 @@ async def _mcp_tool_handler(db, model_type, **args):
 
 # 设备类型枚举（决定 Three.js 几何体+图标）：
 DEVICE_TYPES = {
-    "main_transformer": {"icon": "🔀", "color": 0x3498db, "size": [2.5, 3, 2.5]},
+    "agv": {"icon": "🔀", "color": 0x3498db, "size": [2.5, 3, 2.5]},
     "circuit_breaker": {"icon": "⚡", "color": 0xe74c3c, "size": [1, 2, 1]},
     "disconnector": {"icon": "🔌", "color": 0x2ecc71, "size": [0.8, 1.5, 0.8]},
     "current_transformer": {"icon": "📊", "color": 0xf39c12, "size": [0.6, 2, 0.6]},
@@ -808,7 +808,7 @@ DEVICE_TYPES = {
 | R1 | **N1 extract_facts 的 LLM 调用成本** | 每轮对话后异步调 云模型 1，虽是最便宜档但仍增成本 | ① prompt 极简化（只抽原子事实，≤200 token 输出）；② 工具调用型长对话累积 ≥3 轮才触发；③ 极短问答（1-2 轮）跳过；④ 复用 云模型 1（¥0.0005/1K input token，单次抽取成本 <¥0.001） |
 | R2 | **N4 OTel span 包装的延迟开销** | 每次 LLM/retrieval 调用多一次 span 创建+属性设置 | OTel span 创建 ~0.01ms，属性设置 ~0.001ms，相对 LLM 调用（500ms+）可忽略。采样率 <1.0 时未采样的 span 仅创建不导出，开销更低 |
 | R3 | **N3 Three.js 30 设备的性能** | 30 个 BoxGeometry + 30 个 Sprite + 连线，低端 GPU 可能卡 | ① 盒子用低多边形（8 顶点）；② 标签用 Sprite（始终面向相机）；③ 连线用 LineSegments 批量渲染；④ 动画帧率限制 30fps；⑤ 全屏时才开抗锯齿。实测 30 设备 <5MB 显存 |
-| R4 | **N2 MCP SDK 版本兼容性** | MCP Python SDK 仍在快速迭代，1.x 可能有 breaking change | 锁定 `mcp>=1.0,<2`，schema 转换层隔离 SDK 变更影响。mock_scada_server 作为独立进程，SDK 升级不影响主系统 |
+| R4 | **N2 MCP SDK 版本兼容性** | MCP Python SDK 仍在快速迭代，1.x 可能有 breaking change | 锁定 `mcp>=1.0,<2`，schema 转换层隔离 SDK 变更影响。mock_iot_server 作为独立进程，SDK 升级不影响主系统 |
 | R5 | **N1 记忆注入对现有 Agent 链路的回归风险** | L177 新增 system 消息可能影响 LLM 输出质量 | ① recall 返回空字符串时 = 无记忆 = 零行为变化（向后兼容）；② ctx=None 时跳过 recall（diagnose 老链路零回归）；③ 逐步灰度：先 scope="user" 再扩展 |
 | R6 | **Langfuse 专用 PostgreSQL 的运维负担** | 新增一个 PG 实例 | ① 用 alpine 镜像（~80MB）；② 数据量小（trace 保留 30 天自动清理）；③ 纳入 Docker Compose 统一管理，无额外运维流程 |
 
