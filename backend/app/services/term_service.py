@@ -1,6 +1,6 @@
 """仓储物流术语归一化：别名/错别字 → 标准术语。
 
-优先读 data/logistics_terms.json，fallback data/logistics_terms.json（内容已是物流）。
+从 data/logistics_terms.json 加载别名表。
 """
 import json
 from functools import lru_cache
@@ -9,7 +9,7 @@ from pathlib import Path
 
 def _candidate_paths() -> list[Path]:
     data_dir = Path(__file__).resolve().parent.parent / "data"
-    return [data_dir / "logistics_terms.json", data_dir / "logistics_terms.json"]
+    return [data_dir / "logistics_terms.json"]
 
 
 @lru_cache
@@ -46,7 +46,7 @@ def normalize(text: str) -> str:
 # ===== 词表管理（BRD §4.1.4 后台 CRUD）=====
 
 def _terms_path() -> Path:
-    """优先落盘 logistics_terms.json；若仅有 logiqa_terms 则写回该文件。"""
+    """落盘路径：logistics_terms.json。"""
     for p in _candidate_paths():
         if p.exists():
             return p

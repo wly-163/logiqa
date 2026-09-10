@@ -191,7 +191,7 @@ do_stop()    { $COMPOSE down; info "已停止"; }
 do_restart() { $COMPOSE restart; info "已重启"; }
 do_status()  {
   echo "==== 容器状态 ===="
-  docker ps --filter "name=grid-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
+  docker ps --filter "name=logiqa-" --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}"
   echo ""
   echo "==== backend 健康 ===="
   curl -sf http://localhost:8001/health 2>/dev/null | head -c 200 || echo "(backend 未响应)"

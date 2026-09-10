@@ -8,7 +8,7 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-# ---- 仓储物流术语词典（约 50+ 核心词 + logistics_terms.json / logistics_terms.json 别名）----
+# ---- 仓储物流术语词典（约 50+ 核心词 + logistics_terms.json）----
 _CORE_TERMS: set[str] = {
     # 系统与模式
     "WMS", "TMS", "OMS", "VMI", "AGV", "ASRS", "SKU", "FIFO", "LIFO",
@@ -83,16 +83,12 @@ class RoutingDecision:
 
 
 def _load_term_dict() -> set[str]:
-    """从 logistics_terms.json / logistics_terms.json 加载别名，合并到核心术语集。"""
+    """从 logistics_terms.json 加载别名，合并到核心术语集。"""
     terms = set(_CORE_TERMS)
     try:
-        # 优先 logistics_terms，fallback logiqa_terms（别的任务可能改名）
         for p in [
             os.path.join(os.path.dirname(__file__), "..", "data", "logistics_terms.json"),
-            os.path.join(os.path.dirname(__file__), "..", "data", "logistics_terms.json"),
             "backend/app/data/logistics_terms.json",
-            "backend/app/data/logistics_terms.json",
-            "app/data/logistics_terms.json",
             "app/data/logistics_terms.json",
         ]:
             if os.path.exists(p):

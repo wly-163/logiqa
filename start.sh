@@ -80,11 +80,11 @@ do_restart() {
 do_status() {
     echo ""
     echo "========== 服务状态 =========="
-    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=grid-"
+    docker ps --format "table {{.Names}}\t{{.Status}}\t{{.Ports}}" --filter "name=logiqa-"
     echo ""
     echo "========== 数据挂载 =========="
     for svc in redis minio etcd milvus-minio neo4j nacos prometheus grafana mysql; do
-        local container="grid-$svc"
+        local container="logiqa-$svc"
         if docker ps --format '{{.Names}}' --filter "name=$container" | grep -q . 2>/dev/null; then
             local mount=$(docker inspect "$container" --format '{{range .Mounts}}{{.Type}}:{{.Source}} {{end}}' 2>/dev/null | tr '\n' ' ')
             printf "  %-18s  %s\n" "$container" "${mount:-(无挂载)}"
