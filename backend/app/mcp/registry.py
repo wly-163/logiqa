@@ -28,7 +28,7 @@ class McpRegistry:
     async def load_from_config(self) -> int:
         """从 settings.MCP_SERVERS JSON 加载 server 配置。
 
-        格式：[{"name":"mock_scada","url":"http://localhost:9100","token":"xxx"}]
+        格式：[{"name":"mock_iot","url":"http://localhost:9100","token":"xxx"}]
         Returns: 加载的 server 数量
         """
         raw = settings.MCP_SERVERS

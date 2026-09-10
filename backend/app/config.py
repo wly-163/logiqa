@@ -223,8 +223,8 @@ class Settings(BaseSettings):
     MEMORY_COLLECTION: str = "memory_collection"  # Milvus 记忆 collection 名
 
     # ---------- N2 MCP 工具总线 ----------
-    MCP_SERVERS: str = ""                  # JSON 配置：[{"name":"mock_scada","url":"http://localhost:9100","token":"xxx"}]
-    MCP_TOKEN: str = "grid-mcp-token-2026" # MCP server 对外暴露的鉴权 token
+    MCP_SERVERS: str = ""                  # JSON 配置：[{"name":"mock_iot","url":"http://localhost:9100","token":"xxx"}]
+    MCP_TOKEN: str = "logiqa-mcp-token-2026"  # MCP server 对外暴露的鉴权 token
     MCP_SERVER_HOST: str = "0.0.0.0"       # MCP server 监听地址
     MCP_SERVER_PORT: int = 9100            # MCP server 监听端口
     MCP_IP_WHITELIST: str = ""             # IP 白名单（逗号分隔，空=不限）

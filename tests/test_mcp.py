@@ -2,7 +2,7 @@
 
 测试重点：
 - mcp_to_openai / openai_to_mcp schema 转换 1:1
-- mock_scada_server query_telemetry 返回正确结构
+- mock_iot_server query_telemetry 返回正确结构
 - mcp_client discover → register_tools → call_tool 链路（用 mock）
 - mcp_registry 配置驱动加载
 """
@@ -14,7 +14,7 @@ from httpx import Response
 
 from app.mcp.client import McpClient, mcp_to_openai, openai_to_mcp
 from app.mcp.registry import McpRegistry, McpServerConfig
-from app.mcp import mock_scada_server
+from app.mcp import mock_iot_server
 from app.services.agent_runtime import Tool, ToolRegistry
 
 
@@ -103,10 +103,10 @@ def test_openai_to_mcp_missing_function_defaults():
     assert mcp["inputSchema"] == {"type": "object", "properties": {}}
 
 
-# ===== mock_scada_server 测试 =====
-def test_mock_scada_tools_structure():
-    """mock_scada_server MOCK_TOOLS 结构正确。"""
-    tools = mock_scada_server.MOCK_TOOLS
+# ===== mock_iot_server 测试 =====
+def test_mock_iot_tools_structure():
+    """mock_iot_server MOCK_TOOLS 结构正确。"""
+    tools = mock_iot_server.MOCK_TOOLS
     assert len(tools) == 1
     tool = tools[0]
     assert tool["name"] == "query_telemetry"
@@ -117,7 +117,7 @@ def test_mock_scada_tools_structure():
 
 def test_gen_telemetry_returns_correct_fields():
     """_gen_telemetry 返回正确的遥测字段结构。"""
-    data = mock_scada_server._gen_telemetry("agv_01")
+    data = mock_iot_server._gen_telemetry("agv_01")
     expected_keys = {"deviceId", "deviceName", "deviceType", "temperature", "humidity",
                      "inventoryQty", "skuCount", "taskStatus", "utilization", "status", "timestamp"}
     assert set(data.keys()) == expected_keys
@@ -129,14 +129,14 @@ def test_gen_telemetry_returns_correct_fields():
 
 def test_gen_telemetry_cold_storage_temperature():
     """冷链库温度在冷冻区间。"""
-    data = mock_scada_server._gen_telemetry("cold_storage_01")
+    data = mock_iot_server._gen_telemetry("cold_storage_01")
     assert data["deviceName"] == "冷链库A"
     assert -22.0 <= data["temperature"] <= -15.0
 
 
 def test_gen_telemetry_unknown_device():
     """未知设备也能生成遥测数据（name=device_id）。"""
-    data = mock_scada_server._gen_telemetry("unknown_device")
+    data = mock_iot_server._gen_telemetry("unknown_device")
     assert data["deviceId"] == "unknown_device"
     assert data["deviceName"] == "unknown_device"
     assert data["deviceType"] == "unknown"
@@ -144,8 +144,8 @@ def test_gen_telemetry_unknown_device():
 
 def test_format_telemetry_contains_all_fields():
     """_format_telemetry 格式化文本包含所有遥测字段。"""
-    data = mock_scada_server._gen_telemetry("agv_01")
-    text = mock_scada_server._format_telemetry(data)
+    data = mock_iot_server._gen_telemetry("agv_01")
+    text = mock_iot_server._format_telemetry(data)
     assert "设备:" in text
     assert "温度:" in text
     assert "湿度:" in text
@@ -155,10 +155,10 @@ def test_format_telemetry_contains_all_fields():
     assert "状态:" in text
 
 
-def test_mock_scada_list_tools_endpoint():
-    """mock_scada_server /mcp/tools/list 端点返回 tools 列表。"""
+def test_mock_iot_list_tools_endpoint():
+    """mock_iot_server /mcp/tools/list 端点返回 tools 列表。"""
     from starlette.testclient import TestClient
-    client = TestClient(mock_scada_server.app)
+    client = TestClient(mock_iot_server.app)
     resp = client.get("/mcp/tools/list")
     assert resp.status_code == 200
     data = resp.json()
@@ -167,10 +167,10 @@ def test_mock_scada_list_tools_endpoint():
     assert data["tools"][0]["name"] == "query_telemetry"
 
 
-def test_mock_scada_call_tool_endpoint():
-    """mock_scada_server /mcp/tools/call 端点返回遥测数据。"""
+def test_mock_iot_call_tool_endpoint():
+    """mock_iot_server /mcp/tools/call 端点返回遥测数据。"""
     from starlette.testclient import TestClient
-    client = TestClient(mock_scada_server.app)
+    client = TestClient(mock_iot_server.app)
     resp = client.post("/mcp/tools/call", json={
         "name": "query_telemetry",
         "arguments": {"device_id": "agv_01"},
@@ -182,10 +182,10 @@ def test_mock_scada_call_tool_endpoint():
     assert "温度:" in data["result"]
 
 
-def test_mock_scada_call_tool_missing_device_id():
+def test_mock_iot_call_tool_missing_device_id():
     """缺少 device_id 参数返回提示。"""
     from starlette.testclient import TestClient
-    client = TestClient(mock_scada_server.app)
+    client = TestClient(mock_iot_server.app)
     resp = client.post("/mcp/tools/call", json={
         "name": "query_telemetry",
         "arguments": {},
@@ -195,10 +195,10 @@ def test_mock_scada_call_tool_missing_device_id():
     assert "缺少" in data["result"]
 
 
-def test_mock_scada_call_unknown_tool():
+def test_mock_iot_call_unknown_tool():
     """调用未知工具返回提示。"""
     from starlette.testclient import TestClient
-    client = TestClient(mock_scada_server.app)
+    client = TestClient(mock_iot_server.app)
     resp = client.post("/mcp/tools/call", json={
         "name": "nonexistent",
         "arguments": {},
@@ -208,10 +208,10 @@ def test_mock_scada_call_unknown_tool():
     assert "未知工具" in data["result"]
 
 
-def test_mock_scada_health_endpoint():
-    """mock_scada /health 端点返回 ok。"""
+def test_mock_iot_health_endpoint():
+    """mock_iot /health 端点返回 ok。"""
     from starlette.testclient import TestClient
-    client = TestClient(mock_scada_server.app)
+    client = TestClient(mock_iot_server.app)
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
@@ -222,11 +222,11 @@ def test_mcp_registry_load_from_config(monkeypatch):
     """从 JSON 配置加载 server 列表。"""
     from app.config import settings
     monkeypatch.setattr(settings, "MCP_SERVERS",
-                        json.dumps([{"name": "mock_scada", "url": "http://localhost:9100"}]))
+                        json.dumps([{"name": "mock_iot", "url": "http://localhost:9100"}]))
     reg = McpRegistry()
     count = asyncio.run(reg.load_from_config())
     assert count == 1
-    srv = reg.get_server("mock_scada")
+    srv = reg.get_server("mock_iot")
     assert srv is not None
     assert srv.url == "http://localhost:9100"
     assert srv.enabled is True
@@ -300,10 +300,10 @@ def test_mcp_client_discover_success(monkeypatch):
                                                    "inputSchema": {"type": "object"}}]})
 
     monkeypatch.setattr("app.mcp.client.httpx.AsyncClient", FakeAsyncClient)
-    servers = [McpServerConfig(name="mock_scada", url="http://localhost:9100")]
+    servers = [McpServerConfig(name="mock_iot", url="http://localhost:9100")]
     results = asyncio.run(client.discover(servers))
     assert len(results) == 1
-    assert results[0]["server"] == "mock_scada"
+    assert results[0]["server"] == "mock_iot"
     assert len(results[0]["tools"]) == 1
 
 
@@ -343,7 +343,7 @@ def test_mcp_client_register_tools():
     client = McpClient()
     registry = ToolRegistry()
     discovered = [{
-        "server": "mock_scada",
+        "server": "mock_iot",
         "url": "http://localhost:9100",
         "tools": [{
             "name": "query_telemetry",
@@ -368,15 +368,15 @@ def test_mcp_client_register_tools_avoids_name_conflict():
     registry.register(Tool(name="query_telemetry", description="内置",
                            parameters={}, handler=builtin_handler))
     discovered = [{
-        "server": "mock_scada",
+        "server": "mock_iot",
         "url": "http://localhost:9100",
         "tools": [{"name": "query_telemetry", "description": "外部",
                     "inputSchema": {"type": "object"}}],
     }]
     count = client.register_tools(registry, discovered)
     assert count == 1
-    # 外部工具被重命名为 mcp_mock_scada_query_telemetry
-    assert registry.get("mcp_mock_scada_query_telemetry") is not None
+    # 外部工具被重命名为 mcp_mock_iot_query_telemetry
+    assert registry.get("mcp_mock_iot_query_telemetry") is not None
 
 
 def test_mcp_client_call_tool_success(monkeypatch):

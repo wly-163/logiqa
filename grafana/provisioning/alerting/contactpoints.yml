@@ -10,7 +10,7 @@ contactPoints:
       - uid: backend-alert-webhook
         type: webhook
         settings:
-          url: http://backend:8001/api/system/alerts/webhook?token=grid-alert-token-2026
+          url: http://backend:8001/api/system/alerts/webhook?token=logiqa-alert-token-2026
           httpMethod: POST
           maxAlerts: 50
         disableResolveMessage: false

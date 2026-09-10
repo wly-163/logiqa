@@ -1,7 +1,6 @@
 """N2 Mock WMS/IoT MCP Server：示例外部 MCP server，提供仓储设备遥测查询。
 
-文件名保留 mock_scada_server 以兼容既有启动配置；语义已改为 WMS/IoT。
-作为独立进程运行（python -m app.mcp.mock_scada_server），验证 MCP client
+作为独立进程运行（python -m app.mcp.mock_iot_server），验证 MCP client
 发现→注册→调用链路完整性。真实 WMS/IoT 接入时替换 handler 即可。
 
 提供工具：
@@ -125,7 +124,7 @@ async def call_tool(request: Request):
 @app.get("/health")
 async def health():
     """健康检查。"""
-    return {"status": "ok", "server": "mock_wms_iot"}
+    return {"status": "ok", "server": "mock_iot"}
 
 
 if __name__ == "__main__":

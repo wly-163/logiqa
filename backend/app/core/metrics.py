@@ -186,7 +186,7 @@ def init_metric_series() -> None:
         # 安全拦截
         SAFETY_BLOCK.labels("injection").inc(0)
         SAFETY_BLOCK.labels("deidentify").inc(0)
-        # 仓储物流危险作业关键词（8 类，与 safety._GRID_HAZARD_CATEGORIES 对齐）
+        # 仓储物流危险作业关键词（8 类，与 safety._HAZARD_CATEGORIES 对齐）
         for _hcat in ("危险品作业", "冷链断链", "叉车AGV", "高空送装", "误操作", "作业单合规", "安全措施", "仓配异常"):
             SAFETY_KEYWORD.labels(_hcat).inc(0)
         # 告警回调（Grafana severity 维度）

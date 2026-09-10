@@ -24,8 +24,7 @@ _INJECTION_PATTERNS = [
 _INJECTION_RE = re.compile("|".join(_INJECTION_PATTERNS), re.IGNORECASE)
 
 # ===== 供应链物流安全关键词分类（8 类危险作业维度） =====
-# 变量名保留 _GRID_HAZARD_CATEGORIES 以兼容 metrics/调用方
-_GRID_HAZARD_CATEGORIES: Dict[str, Dict] = {
+_HAZARD_CATEGORIES: Dict[str, Dict] = {
     "危险品作业": {
         "severity": "critical",
         "patterns": [
@@ -95,7 +94,7 @@ _GRID_HAZARD_CATEGORIES: Dict[str, Dict] = {
 # 预编译分类正则
 _CATEGORY_RES = {
     cat: re.compile("|".join(re.escape(p) for p in info["patterns"]))
-    for cat, info in _GRID_HAZARD_CATEGORIES.items()
+    for cat, info in _HAZARD_CATEGORIES.items()
 }
 
 # 出站脱敏模式
@@ -128,7 +127,7 @@ def scan_logiqa_hazards(text: str) -> List[Dict]:
     for cat, cre in _CATEGORY_RES.items():
         matches = cre.findall(text)
         if matches:
-            info = _GRID_HAZARD_CATEGORIES[cat]
+            info = _HAZARD_CATEGORIES[cat]
             results.append({
                 "category": cat,
                 "severity": info["severity"],
@@ -148,7 +147,7 @@ def get_hazard_categories() -> Dict:
     """返回所有注册的危险操作类别及严重程度（供前端/API 查询）。"""
     return {
         cat: {"severity": info["severity"], "pattern_count": len(info["patterns"])}
-        for cat, info in _GRID_HAZARD_CATEGORIES.items()
+        for cat, info in _HAZARD_CATEGORIES.items()
     }
 
 
@@ -175,7 +174,7 @@ def extract_high_risk(answer: str) -> list[str]:
         return []
     kws = [k.strip() for k in (getattr(settings, "HIGH_RISK_KEYWORDS", "") or "").split(",") if k.strip()]
     if not kws:
-        for info in _GRID_HAZARD_CATEGORIES.values():
+        for info in _HAZARD_CATEGORIES.values():
             kws.extend(info["patterns"])
         kws = list(set(kws))
     return sorted({k for k in kws if k and k in answer})
