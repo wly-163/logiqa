@@ -87,7 +87,7 @@ export function buildLand() {
   grass.receiveShadow = true
   g.add(grass)
 
-  // 站内混凝土地坪 — 36x28
+  // 园区混凝土地坪 — 36x28
   // 关闭 receiveShadow(在它之上的 platforms 已经接阴影),加 polygonOffset 防和 grass/子组件微 z-fight
   const inner = new THREE.Mesh(
     new THREE.PlaneGeometry(36, 28),
@@ -103,13 +103,13 @@ export function buildLand() {
   inner.receiveShadow = false
   g.add(inner)
 
-  // 站内分区(深色块,模拟设备基础平台)
+  // 园区分区(深色块,模拟月台/库区基础平台)
   const platMat = new THREE.MeshStandardMaterial({ color: 0x8A8D92, roughness: 0.85 })
   const platforms = [
     { pos: [0, 0, 0], size: [13, 8] },          // 存储/AGV区
     { pos: [15, 0, 0], size: [11, 13] },         // 发运月台区
     { pos: [-12, 0, 0], size: [9, 7] },          // 冷链库区
-    { pos: [-12, 0, 8], size: [9, 5] },          // 调度中心
+    { pos: [-12, 0, 8], size: [9, 5] },          // 仓控中心
     { pos: [0, 0, -8], size: [7, 5] },           // 分拣缓存区
   ]
   for (const p of platforms) {
@@ -792,8 +792,8 @@ export function buildLogisticsPark() {
 
 // ========== 7. 整合入口 ==========
 /**
- * 完整园区场景(站外 + 站内环境)
- * @returns {THREE.Group} 包含地形/道路/建筑/树木/调度室/围栏
+ * 完整园区场景(园区外 + 园区内环境)
+ * @returns {THREE.Group} 包含地形/道路/建筑/树木/仓控室/围栏
  */
 export function buildDistrict(envMap) {
   const g = new THREE.Group()
@@ -814,7 +814,7 @@ export function buildDistrict(envMap) {
   // 围栏(仓储园区外圈)
   g.add(buildFence())
 
-  // 园区调度室(已有逻辑但更精致)
+  // 园区仓控室(已有逻辑但更精致)
   g.add(buildStationBuildings())
 
   // 应用 PBR envMap 到所有 Standard 材质
@@ -854,11 +854,11 @@ function buildFence() {
   return g
 }
 
-// ========== 辅助:调度室/设备间建筑(更精致) ==========
+// ========== 辅助:仓控室/设备间建筑(更精致) ==========
 function buildStationBuildings() {
   const g = new THREE.Group()
 
-  // 调度室
+  // 仓控室
   const wallMat = new THREE.MeshStandardMaterial({ color: 0xD9D2C0, roughness: 0.85 })
   const roofMat = new THREE.MeshStandardMaterial({ color: 0x4D4D4D, roughness: 0.7, metalness: 0.2 })
   const winMat = new THREE.MeshStandardMaterial({
@@ -866,7 +866,7 @@ function buildStationBuildings() {
     emissive: 0x0A141F, emissiveIntensity: 0.3,
   })
 
-  // 调度室主体
+  // 仓控室主体
   const cr = new THREE.Mesh(new RoundedBoxGeometry(8, 4, 4, 2, 0.3), wallMat)
   cr.position.set(-12, 2, 8)
   cr.castShadow = true
@@ -875,13 +875,13 @@ function buildStationBuildings() {
   const crRoof = new THREE.Mesh(new THREE.BoxGeometry(8.4, 0.2, 4.4), roofMat)
   crRoof.position.set(-12, 4.1, 8)
   g.add(crRoof)
-  // 调度室窗
+  // 仓控室窗
   for (let i = 0; i < 3; i++) {
     const win = new THREE.Mesh(new THREE.PlaneGeometry(1.5, 1.2), winMat)
     win.position.set(-12 + (-1 + i) * 2.5, 2.5, 10.01)
     g.add(win)
   }
-  // 调度室门
+  // 仓控室门
   const door = new THREE.Mesh(
     new THREE.BoxGeometry(0.8, 2.0, 0.05),
     new THREE.MeshStandardMaterial({ color: 0x4A3525, roughness: 0.7 })

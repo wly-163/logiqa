@@ -11,7 +11,7 @@
       <div v-if="stats" class="stats-grid">
         <div class="stat stat-accent"><div class="stat-val">{{ stats.total }}</div><div class="stat-lbl">总单据</div></div>
         <div class="stat stat-accent"><div class="stat-val">{{ stats.byType?.作业单 || stats.byType?.作业单 || 0 }}</div><div class="stat-lbl">作业单</div></div>
-        <div class="stat stat-accent"><div class="stat-val">{{ stats.byType?.运单 || stats.byType?.工作票 || 0 }}</div><div class="stat-lbl">运单</div></div>
+        <div class="stat stat-accent"><div class="stat-val">{{ stats.byType?.运单 || 0 }}</div><div class="stat-lbl">运单</div></div>
         <div class="stat stat-accent"><div class="stat-val">{{ stats.avgReviewScore }}</div><div class="stat-lbl">平均审核分</div></div>
       </div>
       <div v-if="stats?.byStatus" class="status-dist" style="margin-top:12px">

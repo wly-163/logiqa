@@ -286,11 +286,11 @@ function render3D() {
     // 天空盒
     scene.add(buildSky())
 
-    // 园区环境(地形/道路/建筑/树木/调度室)
+    // 园区环境(地形/道路/建筑/树木/仓控室)
     envGroup = buildDistrict(envMap)
     scene.add(envGroup)
 
-    // 站内区域地面已由 buildDistrict 内部 platforms 提供，不再调用 buildAreaFloor 避免重叠 z-fight
+    // 库区地面已由 buildDistrict 内部 platforms 提供，不再调用 buildAreaFloor 避免重叠 z-fight
     // 区域标签仍然渲染（标签和地面分开，无 z-fight 风险）
     for (const area of overview.value.areas || []) {
       if (showLabels.value) {

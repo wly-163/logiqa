@@ -156,7 +156,7 @@ def test_draft_ticket_wraps_domain(monkeypatch):
         return {"ticket": {"device": "1号AGV", "steps": ["锁定月台"], "safety": ["测温复核"], "risks": []}}
     monkeypatch.setattr(agent_tools.domain_service, "generate_ticket", fake_ticket)
     out = asyncio.run(agent_tools._t_draft_ticket(
-        None, None, task="转检修", tenant="tenant-a",
+        None, None, task="转停线", tenant="tenant-a",
     ))
     assert "1号AGV" in out and "锁定月台" in out
     assert seen["tenant"] == "tenant-a"

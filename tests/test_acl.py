@@ -21,60 +21,60 @@ class _Doc:
 def test_acl_no_context_passthrough():
     """未传 user 上下文 = 不过滤（向后兼容：admin 链路/旧调用）。"""
     assert _acl_ok("", "", None, None)
-    assert _acl_ok("检修", "editor", None, None)
+    assert _acl_ok("干线", "editor", None, None)
 
 
 def test_acl_public_doc():
     """文档 dept 空 = 公开，任何用户可读。"""
-    assert _acl_ok("", "", "调度", "operator")
-    assert _acl_ok("", "editor", "检修", "operator")
+    assert _acl_ok("", "", "仓储", "operator")
+    assert _acl_ok("", "editor", "干线", "operator")
 
 
 def test_acl_same_dept_pass():
-    assert _acl_ok("调度", "", "调度", "operator")
-    assert _acl_ok("调度", "operator,editor", "调度", "operator")
+    assert _acl_ok("仓储", "", "仓储", "operator")
+    assert _acl_ok("仓储", "operator,editor", "仓储", "operator")
 
 
 def test_acl_cross_dept_denied():
-    assert not _acl_ok("检修", "", "调度", "operator")
-    assert not _acl_ok("调度", "editor", "检修", "operator")
+    assert not _acl_ok("干线", "", "仓储", "operator")
+    assert not _acl_ok("仓储", "editor", "干线", "operator")
 
 
 def test_acl_admin_bypass():
     """admin 跨部门/跨角色也放行。"""
-    assert _acl_ok("检修", "editor", "调度", "admin")
+    assert _acl_ok("干线", "editor", "仓储", "admin")
 
 
 def test_acl_role_not_allowed():
     """同 dept 但 allowed_roles 不含用户角色 = 拒。"""
-    assert not _acl_ok("调度", "editor", "调度", "operator")
-    assert not _acl_ok("调度", "auditor", "调度", "operator")
+    assert not _acl_ok("仓储", "editor", "仓储", "operator")
+    assert not _acl_ok("仓储", "auditor", "仓储", "operator")
 
 
 # ===== _assert_acl：逐文档校验（越权抛 BizError 403）=====
 
 def test_assert_acl_raises_cross_dept():
-    doc = _Doc(dept="检修", allowed_roles="")
+    doc = _Doc(dept="干线", allowed_roles="")
     with pytest.raises(BizError):
-        _assert_acl(doc, "调度", "operator")
+        _assert_acl(doc, "仓储", "operator")
 
 
 def test_assert_acl_raises_role_unauthorized():
-    doc = _Doc(dept="调度", allowed_roles="editor")
+    doc = _Doc(dept="仓储", allowed_roles="editor")
     with pytest.raises(BizError):
-        _assert_acl(doc, "调度", "operator")
+        _assert_acl(doc, "仓储", "operator")
 
 
 def test_assert_acl_admin_pass():
-    _assert_acl(_Doc(dept="检修", allowed_roles="editor"), "调度", "admin")  # 不抛
+    _assert_acl(_Doc(dept="干线", allowed_roles="editor"), "仓储", "admin")  # 不抛
 
 
 def test_assert_acl_none_context_skip():
     """向后兼容：无 user 上下文直接放行。"""
-    _assert_acl(_Doc(dept="检修", allowed_roles="editor"), None, None)
+    _assert_acl(_Doc(dept="干线", allowed_roles="editor"), None, None)
 
 
 def test_assert_acl_public_and_same_dept_pass():
-    _assert_acl(_Doc(dept="", allowed_roles=""), "调度", "operator")  # 公开
-    _assert_acl(_Doc(dept="调度", allowed_roles=""), "调度", "operator")  # 同dept全员
-    _assert_acl(_Doc(dept="调度", allowed_roles="operator,editor"), "调度", "operator")  # 角色命中
+    _assert_acl(_Doc(dept="", allowed_roles=""), "仓储", "operator")  # 公开
+    _assert_acl(_Doc(dept="仓储", allowed_roles=""), "仓储", "operator")  # 同dept全员
+    _assert_acl(_Doc(dept="仓储", allowed_roles="operator,editor"), "仓储", "operator")  # 角色命中

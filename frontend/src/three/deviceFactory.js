@@ -39,14 +39,14 @@ function concreteMat() {
 }
 
 function grassMat() {
-  // 站区外绿地
+  // 园区外绿地
   return getMaterial('grass', () =>
     new THREE.MeshStandardMaterial({ color: 0x3E5C3A, metalness: 0.0, roughness: 0.95 })
   )
 }
 
 function buildingMat() {
-  // 调度室/设备间墙体
+  // 仓控室/设备间墙体
   return getMaterial('building', () =>
     new THREE.MeshStandardMaterial({ color: 0xC8C2B4, metalness: 0.05, roughness: 0.85 })
   )
@@ -493,7 +493,7 @@ export function buildAreaFloor(area) {
 }
 
 /**
- * 站区环境（地面 + 道路 + 围栏 + 建筑）
+ * 园区环境（地面 + 道路 + 围栏 + 建筑）
  */
 export function buildEnvironment() {
   const g = new THREE.Group()
@@ -508,7 +508,7 @@ export function buildEnvironment() {
   ground.receiveShadow = true
   g.add(ground)
 
-  // 站内混凝土地面 — 30×30
+  // 园区混凝土地面 — 30×30
   const inner = new THREE.Mesh(
     new THREE.PlaneGeometry(35, 25),
     new THREE.MeshStandardMaterial({ color: 0xB0B3B8, metalness: 0.05, roughness: 0.9 })
@@ -536,7 +536,7 @@ export function buildEnvironment() {
   road2.receiveShadow = true
   g.add(road2)
 
-  // 调度室建筑（左侧 -12, 8）— 实心盒
+  // 仓控室建筑（左侧 -12, 8）— 实心盒
   const cr = new THREE.Mesh(
     new THREE.BoxGeometry(8, 4, 4),
     buildingMat()
@@ -553,7 +553,7 @@ export function buildEnvironment() {
   crRoof.position.set(-12, 4.1, 8)
   crRoof.castShadow = true
   g.add(crRoof)
-  // 调度室窗（深色玻璃）
+  // 仓控室窗（深色玻璃）
   const winMat = new THREE.MeshStandardMaterial({ color: 0x1A2A3A, metalness: 0.7, roughness: 0.2, emissive: 0x0A141F, emissiveIntensity: 0.3 })
   for (let i = 0; i < 3; i++) {
     const win = new THREE.Mesh(
@@ -564,7 +564,7 @@ export function buildEnvironment() {
     g.add(win)
   }
 
-  // 设备间（-12, 0）— 比调度室矮一点
+  // 设备间（-12, 0）— 比仓控室矮一点
   const sw = new THREE.Mesh(
     new THREE.BoxGeometry(8, 3.5, 6),
     buildingMat()
