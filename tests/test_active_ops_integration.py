@@ -65,13 +65,13 @@ async def active_ops_db():
 def _event_body(event_id: str) -> RealtimeEventIn:
     return RealtimeEventIn(
         eventId=event_id,
-        source="scada",
+        source="iot",
         eventType="alarm",
         severity="critical",
         occurredAt=datetime(2026, 7, 16, 10, 30),
         title="1号AGV库温越限",
         summary="冷链温度 96℃",
-        payload={"deviceId": "T1", "measurements": {"oilTemperature": 96}},
+        payload={"deviceId": "T1", "measurements": {"coldChainTemp": 96}},
     )
 
 
@@ -80,16 +80,16 @@ def _stored_event(event_id: str, *, status: str = "queued") -> RealtimeEvent:
         id=f"db-{event_id}",
         tenant_id="tenant-a",
         event_id=event_id,
-        source="scada",
+        source="iot",
         event_type="alarm",
         severity="critical",
         title="AGV库温越限",
         summary="需要只读诊断",
         source_device_id="T1",
-        canonical_device_id="SUB-A:T1",
+        canonical_device_id="RDC-A:AGV01",
         canonical_device_name="1号AGV",
-        device_type="main_transformer",
-        station="A站",
+        device_type="agv",
+        station="A仓",
         device_mapped=True,
         occurred_at=datetime(2026, 7, 16, 10, 30),
         last_received_at=datetime(2026, 7, 16, 10, 30),
@@ -106,7 +106,7 @@ async def test_ingest_atomically_persists_event_run_task_and_outbox(active_ops_d
     async with active_ops_db() as db:
         result = await realtime_event_service.ingest_event(
             db,
-            _event_body("SCADA-ATOMIC-1"),
+            _event_body("IOT-ATOMIC-1"),
             tenant_id="tenant-a",
             actor="connector-a",
         )
@@ -142,7 +142,7 @@ async def test_ingest_rolls_back_every_record_when_task_enqueue_fails(
         async with active_ops_db() as db:
             await realtime_event_service.ingest_event(
                 db,
-                _event_body("SCADA-ATOMIC-ROLLBACK"),
+                _event_body("IOT-ATOMIC-ROLLBACK"),
                 tenant_id="tenant-a",
             )
 
@@ -158,7 +158,7 @@ async def test_ingest_rolls_back_every_record_when_task_enqueue_fails(
 async def test_restarted_worker_takes_over_running_proactive_run(
     active_ops_db, monkeypatch
 ):
-    event = _stored_event("SCADA-TAKEOVER", status="processing")
+    event = _stored_event("IOT-TAKEOVER", status="processing")
     run = ProactiveOpsRun(
         id="run-takeover",
         tenant_id="tenant-a",
@@ -273,7 +273,7 @@ async def test_restarted_worker_takes_over_running_proactive_run(
 async def test_retry_run_creates_new_generation_instead_of_reusing_dead_task(
     active_ops_db, monkeypatch
 ):
-    event = _stored_event("SCADA-RETRY", status="failed")
+    event = _stored_event("IOT-RETRY", status="failed")
     run = ProactiveOpsRun(
         id="run-retry",
         tenant_id="tenant-a",
@@ -381,7 +381,7 @@ async def test_proactive_ticket_source_ref_is_unique_and_idempotent(active_ops_d
     constraint_names = {item.name for item in Ticket.__table__.constraints}
     assert "uq_tickets_tenant_source_ref" in constraint_names
 
-    event = _stored_event("SCADA-TICKET", status="completed")
+    event = _stored_event("IOT-TICKET", status="completed")
     run = ProactiveOpsRun(
         id="run-ticket",
         tenant_id="tenant-a",
@@ -433,7 +433,7 @@ async def test_proactive_ticket_source_ref_is_unique_and_idempotent(active_ops_d
 
 @pytest.mark.asyncio
 async def test_proactive_handler_ignores_stale_task_generation(active_ops_db):
-    event = _stored_event("SCADA-STALE-GENERATION", status="queued")
+    event = _stored_event("IOT-STALE-GENERATION", status="queued")
     run = ProactiveOpsRun(
         id="run-stale-generation",
         tenant_id="tenant-a",

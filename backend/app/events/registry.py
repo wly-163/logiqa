@@ -64,7 +64,7 @@ def register_event_handler(
 def subscribe_event(
     pattern: str, *, subscriber: str = "", max_attempts: int = 5
 ):
-    """订阅装饰器，pattern 支持 ``*``，例如 ``scada.alert.*``。"""
+    """订阅装饰器，pattern 支持 ``*``，例如 ``iot.alert.*``。"""
 
     def decorator(handler: EventHandler) -> EventHandler:
         stable_name = subscriber or f"{handler.__module__}.{handler.__qualname__}"

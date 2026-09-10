@@ -68,7 +68,7 @@
     <div v-if="can('system:config')" class="card" v-show="tab === 'mapping'">
       <div class="card-header"><div><h3 class="card-title">设备身份映射</h3><div class="card-desc">将各业务系统的设备编码统一到平台规范设备 ID。</div></div><button class="btn btn-ghost btn-sm" @click="loadMappings">刷新</button></div>
       <div class="mapping-form">
-        <select class="select" v-model="mappingForm.source"><option value="scada">WMS/IoT</option><option value="oms">OMS</option><option value="pms">TMS</option><option value="generic">通用</option></select>
+        <select class="select" v-model="mappingForm.source"><option value="iot">WMS/IoT</option><option value="oms">OMS</option><option value="tms">TMS</option><option value="generic">通用</option></select>
         <input class="input" v-model="mappingForm.sourceDeviceId" placeholder="源设备 ID" />
         <input class="input" v-model="mappingForm.canonicalDeviceId" placeholder="规范设备 ID" />
         <input class="input" v-model="mappingForm.canonicalName" placeholder="设备名称" />
@@ -125,7 +125,7 @@ const mappings = ref({ total: 0, list: [] })
 const tasks = ref({ total: 0, list: [] })
 const domainEvents = ref({ total: 0, list: [] })
 const taskStats = ref({ tasks: {}, events: {} })
-const mappingForm = reactive({ source: 'scada', sourceDeviceId: '', canonicalDeviceId: '', canonicalName: '', deviceType: '', station: '', active: true, metadata: {} })
+const mappingForm = reactive({ source: 'iot', sourceDeviceId: '', canonicalDeviceId: '', canonicalName: '', deviceType: '', station: '', active: true, metadata: {} })
 const toastMsg = ref('')
 let toastTimer
 let refreshTimer

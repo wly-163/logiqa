@@ -13,41 +13,41 @@ from app.schemas.realtime_event import RealtimeEventIn
 from app.services import realtime_event_service as service
 
 
-def test_scada_event_normalizes_with_canonical_device_mapping():
+def test_iot_event_normalizes_with_canonical_device_mapping():
     body = RealtimeEventIn(
-        eventId="SCADA-001",
-        source="SCADA",
+        eventId="IOT-001",
+        source="IOT",
         eventType="temperature_alarm",
         severity="严重",
         occurredAt=datetime(2026, 7, 16, 9, 30),
         payload={
-            "deviceId": "T1_main_transformer",
+            "deviceId": "AGV_01_cold",
             "deviceName": "旧系统1号AGV",
             "alarmText": "冷链温度达到 92℃",
-            "measurements": {"oilTemperature": 92},
+            "measurements": {"coldChainTemp": 92},
         },
     )
     mapping = SimpleNamespace(
         active=True,
-        canonical_device_id="SUB-A:T1",
+        canonical_device_id="RDC-A:AGV01",
         canonical_name="华东RDC1号AGV",
-        device_type="main_transformer",
-        station="A站",
+        device_type="agv",
+        station="A仓",
     )
 
     normalized = service.normalize_event_payload(body, mapping)
 
-    assert normalized["source"] == "scada"
+    assert normalized["source"] == "iot"
     assert normalized["severity"] == "major"
     assert normalized["device"] == {
-        "sourceDeviceId": "T1_main_transformer",
-        "canonicalDeviceId": "SUB-A:T1",
+        "sourceDeviceId": "AGV_01_cold",
+        "canonicalDeviceId": "RDC-A:AGV01",
         "canonicalName": "华东RDC1号AGV",
-        "deviceType": "main_transformer",
-        "station": "A站",
+        "deviceType": "agv",
+        "station": "A仓",
         "mapped": True,
     }
-    assert normalized["measurements"]["oilTemperature"] == 92
+    assert normalized["measurements"]["coldChainTemp"] == 92
     assert normalized["safety"]["controlAllowed"] is False
 
 
@@ -55,7 +55,7 @@ def test_scada_event_normalizes_with_canonical_device_mapping():
     ("source", "payload", "expected"),
     [
         ("oms", {"resourceId": "OMS-R-9"}, "OMS-R-9"),
-        ("pms", {"assetId": "PMS-A-8"}, "PMS-A-8"),
+        ("tms", {"assetId": "TMS-A-8"}, "TMS-A-8"),
         ("generic", {"equipmentId": "GEN-E-7"}, "GEN-E-7"),
     ],
 )
@@ -66,14 +66,14 @@ def test_source_specific_device_id_extraction(source, payload, expected):
 
 def test_unmapped_device_is_explicit_not_silently_guessed():
     body = RealtimeEventIn(
-        eventId="PMS-1",
-        source="pms",
+        eventId="TMS-1",
+        source="tms",
         severity="warning",
         payload={"assetId": "ASSET-22", "assetName": "2号叉车"},
     )
     normalized = service.normalize_event_payload(body)
     assert normalized["device"]["mapped"] is False
-    assert normalized["device"]["canonicalDeviceId"] == "unmapped:pms:ASSET-22"
+    assert normalized["device"]["canonicalDeviceId"] == "unmapped:tms:ASSET-22"
 
 
 def test_rule_gate_only_triggers_actionable_severity():
@@ -177,13 +177,13 @@ def test_ingress_dependency_cannot_reuse_token_for_another_tenant(monkeypatch):
 
 def test_event_id_is_required_for_idempotency():
     with pytest.raises(ValidationError):
-        RealtimeEventIn(eventId="   ", source="scada")
+        RealtimeEventIn(eventId="   ", source="iot")
 
 
 def test_ticket_draft_stays_draft_and_records_source():
     event = SimpleNamespace(
         event_id="EV-9",
-        source="scada",
+        source="iot",
         title="AGV温度越限",
         canonical_device_name="1号AGV",
         canonical_device_id="T1",
@@ -193,8 +193,8 @@ def test_ticket_draft_stays_draft_and_records_source():
         {
             "summary": "检查温控系统",
             "ticket": {
-                "ticketType": "非法控制票",
-                "steps": ["检查风机", "必要时申请减载"],
+                "ticketType": "非法控制单",
+                "steps": ["检查冷机", "必要时申请停机隔离"],
                 "safety": ["执行前核对设备"],
             },
         },

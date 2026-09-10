@@ -5,7 +5,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
-EventSource = Literal["scada", "oms", "pms", "generic"]
+EventSource = Literal["iot", "oms", "tms", "generic"]
 
 
 class RealtimeDeviceRef(BaseModel):
@@ -22,7 +22,7 @@ class RealtimeDeviceRef(BaseModel):
 class RealtimeEventIn(BaseModel):
     """统一事件信封。
 
-    ``payload`` 保留源系统原始字段，公共字段用于跨 SCADA/OMS/PMS 的稳定编排。
+    ``payload`` 保留源系统原始字段，公共字段用于跨 WMS/IoT、OMS、TMS 的稳定编排。
     未识别字段也会保留，以便连接器渐进迁移到统一信封。
     """
 

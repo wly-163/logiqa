@@ -232,9 +232,9 @@ def extract_source_device_id(body: RealtimeEventIn) -> str:
     payload = body.payload or {}
     nested = payload.get("device") if isinstance(payload.get("device"), dict) else {}
     keys_by_source = {
-        "scada": ("deviceId", "equipmentId", "deviceCode", "pointDeviceId", "pointId"),
+        "iot": ("deviceId", "equipmentId", "deviceCode", "sensorId", "pointId"),
         "oms": ("resourceId", "deviceId", "equipmentId", "deviceCode"),
-        "pms": ("assetId", "equipmentCode", "deviceId", "equipmentId"),
+        "tms": ("assetId", "equipmentCode", "deviceId", "equipmentId", "vehicleId"),
         "generic": ("deviceId", "equipmentId", "assetId", "resourceId"),
     }
     keys = keys_by_source.get(body.source, keys_by_source["generic"])

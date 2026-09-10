@@ -105,7 +105,7 @@ async def receive_event(
     identity: service.IngressIdentity = Depends(authenticate_realtime_ingress),
     db: AsyncSession = Depends(get_db),
 ):
-    """SCADA/OMS/PMS/generic 统一事件入口；eventId 在租户+源内幂等。"""
+    """WMS/IoT、OMS、TMS、generic 统一事件入口；eventId 在租户+源内幂等。"""
     data = await service.ingest_event(
         db,
         body,
