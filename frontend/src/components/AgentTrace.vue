@@ -5,14 +5,14 @@
 <template>
   <div class="agent-trace" v-if="steps && steps.length">
     <div class="trace-head" @click="open = !open">
-      <span>{{ title }} · {{ steps.length }}步</span>
-      <span class="trace-toggle">{{ open ? '收起 ▾' : '展开 ▸' }}</span>
+      <span>{{ title }} · {{ t('chat.stepsN', { n: steps.length }) }}</span>
+      <span class="trace-toggle">{{ open ? t('chat.fold') + ' ▾' : t('chat.unfold') + ' ▸' }}</span>
     </div>
     <div v-show="open" class="trace-steps">
       <div v-for="(st, k) in steps" :key="k" class="trace-step" :class="{ 'is-final': !st.tool }">
-        <span class="trace-iter">第{{ st.iter }}轮</span>
+        <span class="trace-iter">{{ t('chat.roundN', { n: st.iter }) }}</span>
         <span v-if="st.tool" class="trace-tool">🔧 {{ st.tool }}<span class="trace-args" v-if="st.args && Object.keys(st.args).length">({{ JSON.stringify(st.args) }})</span></span>
-        <span v-else class="trace-thought">💭 综合作答</span>
+        <span v-else class="trace-thought">💭 {{ t('chat.synthesize') }}</span>
         <div v-if="st.result" class="trace-result" :class="{ err: st.error }">{{ (st.result || '').slice(0, 220) }}</div>
       </div>
     </div>
@@ -21,10 +21,12 @@
 
 <script setup>
 import { ref } from 'vue'
+import { useI18n } from 'vue-i18n'
 defineProps({
   steps: { type: Array, default: () => [] },
-  title: { type: String, default: '🧠 深度思考' },
+  title: { type: String, default: '' },
 })
+const { t } = useI18n()
 const open = ref(true)
 </script>
 
