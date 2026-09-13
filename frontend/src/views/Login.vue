@@ -4,33 +4,34 @@
       <div class="aside-brand">
         <div class="brand-logo">LQ</div>
         <div>
-          <div class="aside-title">智链问答</div>
-          <div class="aside-en">LogiQA</div>
+          <div class="aside-title">{{ t('brand.name') }}</div>
+          <div class="aside-en">{{ t('brand.en') }}</div>
         </div>
       </div>
-      <p class="aside-desc">仓配作业、异常处置、干线时效与末端送装的智能问答系统。</p>
+      <p class="aside-desc">{{ t('login.desc') }}</p>
       <ul class="aside-list">
-        <li>知识库检索与可信问答</li>
-        <li>知识图谱与仓配孪生</li>
-        <li>异常预警与作业协同</li>
+        <li>{{ t('login.f1') }}</li>
+        <li>{{ t('login.f2') }}</li>
+        <li>{{ t('login.f3') }}</li>
       </ul>
     </aside>
     <main class="login-main">
+      <LangSwitcher class="login-lang" />
       <form class="login-card" @submit.prevent="doLogin">
-        <h1>登录</h1>
-        <p class="login-desc">请使用系统账号登录</p>
+        <h1>{{ t('login.title') }}</h1>
+        <p class="login-desc">{{ t('login.hint') }}</p>
         <div class="field">
-          <label class="field-label">用户名</label>
-          <input class="input" v-model="username" placeholder="请输入用户名" autocomplete="username" />
+          <label class="field-label">{{ t('login.username') }}</label>
+          <input class="input" v-model="username" :placeholder="t('login.userPh')" autocomplete="username" />
         </div>
         <div class="field">
-          <label class="field-label">密码</label>
-          <input class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" />
+          <label class="field-label">{{ t('login.password') }}</label>
+          <input class="input" v-model="password" type="password" :placeholder="t('login.passPh')" autocomplete="current-password" />
         </div>
         <button class="btn btn-primary login-btn" type="submit" :disabled="loading">
-          {{ loading ? '登录中...' : '登录' }}
+          {{ loading ? t('login.submitting') : t('login.title') }}
         </button>
-        <p class="hint">演示账号 admin / admin123</p>
+        <p class="hint">{{ t('login.demo') }}</p>
         <p class="err" v-if="err">{{ err }}</p>
       </form>
     </main>
@@ -40,9 +41,12 @@
 <script setup>
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
 import { login } from '../api'
+import LangSwitcher from '../components/LangSwitcher.vue'
 
+const { t } = useI18n()
 const username = ref('admin')
 const password = ref('admin123')
 const loading = ref(false)
@@ -57,7 +61,7 @@ async function doLogin() {
     const r = await login(username.value, password.value)
     if (r.code === 200) { auth.setAuth(r.data); router.push('/chat') }
     else err.value = r.message
-  } catch (e) { err.value = '登录失败，请检查网络' }
+  } catch (e) { err.value = t('login.fail') }
   loading.value = false
 }
 </script>
@@ -87,7 +91,8 @@ async function doLogin() {
 .aside-en { font-size: 13px; color: rgba(255,255,255,.45); }
 .aside-desc { margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: rgba(255,255,255,.65); max-width: 360px; }
 .aside-list { margin: 0; padding-left: 18px; color: rgba(255,255,255,.55); font-size: 13px; line-height: 2; }
-.login-main { display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+.login-main { position: relative; display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+.login-lang { position: absolute; top: 20px; right: 24px; }
 .login-card { width: 100%; max-width: 360px; }
 .login-card h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; color: var(--text); }
 .login-desc { color: var(--text-muted); font-size: 13px; margin: 0 0 28px; }
