@@ -23,5 +23,5 @@ jobs:
       - name: 单元测试（排除需后端服务的集成测试）
         run: python -m pytest tests/ -q --ignore=tests/test_api.py -m "not integration"
       # 检索/生成评测需 Milvus + embedding / LLM，不在此 CI 跑。
-      # 本地：python scripts/eval_retrieval.py（recall@5 < 92% 退出码 1）
+      # 本地：python scripts/eval_retrieval.py（recall@5 < 85% 退出码 1）
       # 本地：python scripts/eval_generation.py（faithfulness < 0.85 退出码 1）

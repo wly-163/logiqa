@@ -96,7 +96,7 @@ function renderCharts() {
       tooltip: {}, grid: { left: 10, right: 20, top: 10, bottom: 30, containLabel: true },
       xAxis: { type: 'category', data: e.map((x) => x[0]), axisLabel: { rotate: 20, color: '#94a3b8' } },
       yAxis: { type: 'value', axisLabel: { color: '#94a3b8' } },
-      series: [{ type: 'bar', data: e.map((x) => x[1]), itemStyle: { color: '#4f46e5', borderRadius: [4, 4, 0, 0] } }],
+      series: [{ type: 'bar', data: e.map((x) => x[1]), itemStyle: { color: '#1677ff', borderRadius: [2, 2, 0, 0] } }],
     })
   }
 }

@@ -29,12 +29,12 @@ const open = ref(true)
 </script>
 
 <style scoped>
-.agent-trace { padding: 6px 10px; background: rgba(108, 92, 231, 0.06); border: 1px solid var(--border); border-radius: 8px; font-size: 12px; }
+.agent-trace { padding: 6px 10px; background: var(--primary-soft); border: 1px solid var(--border); border-radius: 6px; font-size: 12px; }
 .trace-head { font-weight: 600; color: var(--primary); cursor: pointer; user-select: none; display: flex; justify-content: space-between; }
 .trace-toggle { font-weight: 400; color: var(--text-muted); }
 .trace-steps { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
 .trace-step { padding: 4px 6px; background: var(--surface); border-radius: 6px; border-left: 3px solid var(--primary); }
-.trace-step.is-final { border-left-color: #6c5ce7; }
+.trace-step.is-final { border-left-color: var(--accent); }
 .trace-iter { color: var(--text-muted); margin-right: 6px; }
 .trace-tool { font-weight: 600; color: var(--text); }
 .trace-args { color: var(--text-muted); font-weight: 400; }

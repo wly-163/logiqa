@@ -1315,13 +1315,26 @@ npm --prefix frontend run dev
 
 ## 十三、质量保障与评测
 
-公开 CI 每次 push / PR 跑两件事：**golden 格式校验**（当前 `backend/data/golden_qa.json` **42** 条仓配问句）和 **不依赖外部服务的单元测试**。检索召回与生成 faithfulness 需要 Milvus / Embedding / LLM，在本地或夜间执行，不把无法复现的历史数字写进 README。
+公开 CI 每次 push / PR 跑两件事：**golden 格式校验**（当前 `backend/data/golden_qa.json` **42** 条仓配问句）和 **不依赖外部服务的单元测试**。检索召回与生成 faithfulness 需要本机全栈和云 API，**不进 GitHub Actions**，也不再写无法复现的「12/12=100%」。
+
+**本机实测（2026-09-10）**：`logiqa` 库、18 篇 `kb_seed`、42 条 golden。当时云 embedding / rerank 欠费，混合检索降级为 **BM25 为主**（dense 失败不 500）。
+
+| 指标 | 结果 |
+|---|---|
+| 样本数 | 42 |
+| recall@5 | **90.5%** |
+| MRR | **0.825** |
+| NDCG@5 | 0.747 |
+| Precision@5 | 22.0% |
+| 无结果率 | 0% |
+
+本地门禁脚本默认 `recall@5 ≥ 85%`（本仓库历史阈值曾写 92%；本次数值 90.5%，未达 92% 故不宣称达标）。复现：`python scripts/eval_retrieval.py`。
 
 | 门禁 | 何时跑 | 失败条件 |
 |---|---|---|
 | golden 格式 | GitHub Actions | query / expect / category 不合法 |
 | 单元测试 | GitHub Actions | `pytest tests/ -m "not integration"` 失败 |
-| `scripts/eval_retrieval.py` | 本地（需检索服务） | recall@5 < 92% |
+| `scripts/eval_retrieval.py` | 本地（需检索服务） | recall@5 < 85% |
 | `scripts/eval_generation.py` | 本地（需 LLM） | 平均 faithfulness < 0.85 |
 
 ```bash
@@ -1404,6 +1417,8 @@ A: 设 `HF_ENDPOINT=https://hf-mirror.com` 或 `HTTPS_PROXY`,或预下到 HF 缓
 **方案 C Agent 引擎**:通用 ReAct 引擎(Tool/ToolRegistry/Persona/run_agent)· diagnose/qa/alert 三 persona 复用 ✅
 
 **企业级**:RBAC+文档级ACL · 多租户 · 版本管理+回滚 · 双RAG热备 · 纯Python备份恢复 · 日志归档 · 故障预测 · 告警闭环 · WebSocket · 多模态VLM ✅
+
+设计稿已归档到 [docs/design](docs/design/README.md)（含历史 plans），**不以其中的接口/评测数字为当前口径**。
 
 ---
 

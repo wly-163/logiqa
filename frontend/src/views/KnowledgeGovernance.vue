@@ -783,8 +783,8 @@ onUnmounted(() => {
 <style scoped>
 .governance-page { --governance-blue: #2563eb; --governance-cyan: #0891b2; --governance-ink: #172554; padding: 12px; min-width: 0; }
 
-.governance-hero { position: relative; display: grid; grid-template-columns: minmax(360px, 1.05fr) minmax(480px, .95fr); gap: 42px; overflow: hidden; margin-bottom: 14px; padding: 26px 30px; border: 1px solid var(--border); border-radius: var(--radius-xl); background: linear-gradient(125deg, var(--surface) 0%, var(--surface) 58%, var(--primary-soft) 100%); box-shadow: var(--shadow-sm); }
-.governance-hero::after { content: ''; position: absolute; width: 280px; height: 280px; right: -130px; top: -180px; border: 1px solid color-mix(in srgb, var(--primary) 22%, transparent); border-radius: 50%; box-shadow: 0 0 0 34px color-mix(in srgb, var(--primary) 3%, transparent), 0 0 0 68px color-mix(in srgb, var(--primary) 2%, transparent); pointer-events: none; }
+.governance-hero { position: relative; display: grid; grid-template-columns: minmax(360px, 1.05fr) minmax(480px, .95fr); gap: 42px; overflow: hidden; margin-bottom: 14px; padding: 24px 28px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--surface); }
+.governance-hero::after { display: none; }
 .hero-copy { position: relative; z-index: 1; }
 .hero-eyebrow { display: flex; align-items: center; gap: 8px; color: var(--primary); font-size: 10px; font-weight: 800; letter-spacing: .16em; }
 .pulse-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--success); box-shadow: 0 0 0 4px var(--success-soft); }
@@ -868,7 +868,7 @@ onUnmounted(() => {
 .review-target { margin-bottom: 15px; padding: 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--surface-2); }.review-target > strong { display: block; margin-top: 8px; font-size: 12px; }.review-target p { margin: 3px 0 0; color: var(--text-muted); font-size: 10px; line-height: 1.6; }.review-textarea { min-height: 115px; resize: vertical; line-height: 1.65; }
 .governance-toast { display: flex; align-items: center; gap: 8px; }.governance-toast.error { background: var(--danger); color: #fff; }.governance-toast.success { background: var(--text); color: var(--surface); }
 
-html.dark .governance-hero { background: linear-gradient(125deg, var(--surface) 0%, var(--surface) 58%, color-mix(in srgb, var(--primary-soft-2) 55%, var(--surface)) 100%); }
+html.dark .governance-hero { background: var(--surface); }
 html.dark .stage-node { box-shadow: 0 0 0 5px color-mix(in srgb, var(--surface) 90%, transparent); }
 
 @media (max-width: 1180px) {
