@@ -1,34 +1,39 @@
 <template>
   <div class="login-page">
-    <div class="login-bg">
-      <div class="blob b1"></div>
-      <div class="blob b2"></div>
-    </div>
-    <div class="login-card">
-      <div class="brand">
+    <aside class="login-aside">
+      <div class="aside-brand">
         <div class="brand-logo">LQ</div>
-        <div class="brand-text">智链问答 <small>LogiQA</small></div>
+        <div>
+          <div class="aside-title">智链问答</div>
+          <div class="aside-en">LogiQA</div>
+        </div>
       </div>
-      <p class="login-desc">开源供应链物流智能问答：仓配作业、异常处置、干线时效与末端送装</p>
-      <div class="field">
-        <label class="field-label">用户名</label>
-        <input class="input" v-model="username" placeholder="请输入用户名" @keyup.enter="doLogin" />
-      </div>
-      <div class="field">
-        <label class="field-label">密码</label>
-        <input class="input" v-model="password" type="password" placeholder="请输入密码" @keyup.enter="doLogin" />
-      </div>
-      <button class="btn btn-primary login-btn" @click="doLogin" :disabled="loading">
-        {{ loading ? '登录中...' : '登 录' }}
-      </button>
-      <p class="hint">默认管理员 admin / admin123</p>
-      <p class="err" v-if="err">{{ err }}</p>
-      <div class="login-feats">
-        <span class="badge badge-primary">自纠错 CRAG</span>
-        <span class="badge badge-info">GraphRAG</span>
-        <span class="badge badge-success">真 faithfulness</span>
-      </div>
-    </div>
+      <p class="aside-desc">仓配作业、异常处置、干线时效与末端送装的智能问答系统。</p>
+      <ul class="aside-list">
+        <li>知识库检索与可信问答</li>
+        <li>知识图谱与仓配孪生</li>
+        <li>异常预警与作业协同</li>
+      </ul>
+    </aside>
+    <main class="login-main">
+      <form class="login-card" @submit.prevent="doLogin">
+        <h1>登录</h1>
+        <p class="login-desc">请使用系统账号登录</p>
+        <div class="field">
+          <label class="field-label">用户名</label>
+          <input class="input" v-model="username" placeholder="请输入用户名" autocomplete="username" />
+        </div>
+        <div class="field">
+          <label class="field-label">密码</label>
+          <input class="input" v-model="password" type="password" placeholder="请输入密码" autocomplete="current-password" />
+        </div>
+        <button class="btn btn-primary login-btn" type="submit" :disabled="loading">
+          {{ loading ? '登录中...' : '登录' }}
+        </button>
+        <p class="hint">演示账号 admin / admin123</p>
+        <p class="err" v-if="err">{{ err }}</p>
+      </form>
+    </main>
   </div>
 </template>
 
@@ -58,19 +63,40 @@ async function doLogin() {
 </script>
 
 <style scoped>
-.login-page { min-height: 100vh; display: flex; align-items: center; justify-content: center; position: relative; overflow: hidden; background: var(--bg); }
-.login-bg { position: absolute; inset: 0; z-index: 0; }
-.blob { position: absolute; border-radius: 50%; filter: blur(80px); opacity: .35; }
-.b1 { width: 480px; height: 480px; background: var(--primary); top: -120px; left: -100px; }
-.b2 { width: 420px; height: 420px; background: var(--accent); bottom: -120px; right: -80px; }
-.login-card { position: relative; z-index: 1; width: 380px; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-xl); padding: 32px; box-shadow: var(--shadow-lg); }
-.brand { display: flex; align-items: center; gap: 12px; margin-bottom: 6px; }
-.brand-logo { width: 44px; height: 44px; border-radius: 12px; background: linear-gradient(135deg, var(--primary), var(--accent)); color: #fff; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 16px; }
-.brand-text { font-size: 18px; font-weight: 700; color: var(--text); line-height: 1.2; }
-.brand-text small { display: block; font-size: 11px; font-weight: 400; color: var(--text-soft); }
-.login-desc { color: var(--text-muted); font-size: 12px; margin: 0 0 22px; line-height: 1.6; }
-.login-btn { width: 100%; padding: 11px; margin-top: 4px; font-size: 14px; }
-.hint { color: var(--text-soft); font-size: 11px; text-align: center; margin: 12px 0 0; }
+.login-page {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(280px, 42%) 1fr;
+  background: var(--bg);
+}
+.login-aside {
+  background: #001529;
+  color: rgba(255,255,255,.85);
+  padding: 56px 48px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+.aside-brand { display: flex; align-items: center; gap: 14px; margin-bottom: 28px; }
+.brand-logo {
+  width: 44px; height: 44px; border-radius: 6px; background: #1677ff;
+  color: #fff; display: flex; align-items: center; justify-content: center;
+  font-weight: 700; font-size: 15px;
+}
+.aside-title { font-size: 22px; font-weight: 600; color: #fff; line-height: 1.3; }
+.aside-en { font-size: 13px; color: rgba(255,255,255,.45); }
+.aside-desc { margin: 0 0 24px; font-size: 14px; line-height: 1.7; color: rgba(255,255,255,.65); max-width: 360px; }
+.aside-list { margin: 0; padding-left: 18px; color: rgba(255,255,255,.55); font-size: 13px; line-height: 2; }
+.login-main { display: flex; align-items: center; justify-content: center; padding: 40px 24px; }
+.login-card { width: 100%; max-width: 360px; }
+.login-card h1 { margin: 0 0 6px; font-size: 24px; font-weight: 600; color: var(--text); }
+.login-desc { color: var(--text-muted); font-size: 13px; margin: 0 0 28px; }
+.login-btn { width: 100%; padding: 10px; margin-top: 4px; }
+.hint { color: var(--text-soft); font-size: 12px; text-align: center; margin: 16px 0 0; }
 .err { color: var(--danger); font-size: 12px; text-align: center; margin: 8px 0 0; }
-.login-feats { display: flex; gap: 6px; justify-content: center; margin-top: 18px; flex-wrap: wrap; }
+@media (max-width: 768px) {
+  .login-page { grid-template-columns: 1fr; }
+  .login-aside { padding: 28px 24px; }
+  .aside-list { display: none; }
+}
 </style>

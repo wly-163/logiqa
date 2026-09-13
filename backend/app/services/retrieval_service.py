@@ -31,14 +31,33 @@ async def _embed_bge_or_none(text: str) -> list[float] | None:
         return None
 
 
+async def _embed_cloud_or_none(text: str) -> list[float] | None:
+    """云 embedding 欠费/超时降级为 None，检索回退 BM25，避免整条 mixed 500。"""
+    try:
+        return await embedding_service.embed_query(text, settings.EMB_PROVIDER)
+    except Exception as e:
+        degraded("embed_cloud", e)
+        return None
+
+
 async def _search_dense_dual(dense_q: str, cand: int, ef: int | None = None) -> tuple[list[dict], list[dict]]:
-    """云 + bge 双路 dense；bge 失败时仅返回云路结果。"""
+    """云 + bge 双路 dense；任一路失败则该路为空，由 BM25 兜底。"""
     _ef = ef if ef is not None else max(config_service.rt_ef(), cand)
-    qvec_cloud = await embedding_service.embed_query(dense_q, settings.EMB_PROVIDER)
-    qvec_bge = await _embed_bge_or_none(dense_q)
-    dense_cloud = await asyncio.to_thread(
-        milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef
-    )
+    qvec_cloud = await _embed_cloud_or_none(dense_q)
+    try:
+        qvec_bge = await asyncio.wait_for(_embed_bge_or_none(dense_q), timeout=8)
+    except Exception as e:
+        degraded("embed_bge_timeout", e)
+        qvec_bge = None
+    dense_cloud: list[dict] = []
+    if qvec_cloud is not None:
+        try:
+            dense_cloud = await asyncio.to_thread(
+                milvus_client.search, settings.MILVUS_COLLECTION, qvec_cloud, cand, _ef
+            )
+        except Exception as e:
+            degraded("milvus_search_cloud", e)
+            dense_cloud = []
     dense_bge: list[dict] = []
     if qvec_bge is not None:
         try:

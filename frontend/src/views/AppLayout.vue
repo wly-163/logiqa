@@ -6,12 +6,14 @@
         <div class="brand-text">智链问答<small>LogiQA</small></div>
       </div>
       <nav class="nav-list">
-        <div class="nav-section">工作台</div>
-        <router-link v-for="n in navItems" :key="n.to" :to="n.to" class="nav-item"
-                     :class="{ active: isActive(n.to) }" @click="mobileOpen = false">
-          <span class="nav-icon">{{ n.icon }}</span>
-          <span class="nav-label">{{ n.label }}</span>
-        </router-link>
+        <template v-for="g in navGroups" :key="g.title">
+          <div class="nav-section">{{ g.title }}</div>
+          <router-link v-for="n in g.items" :key="n.to" :to="n.to" class="nav-item"
+                       :class="{ active: isActive(n.to) }" @click="mobileOpen = false">
+            <span class="nav-icon">{{ n.icon }}</span>
+            <span class="nav-label">{{ n.label }}</span>
+          </router-link>
+        </template>
       </nav>
       <div class="sidebar-footer">
         <a class="nav-item" @click="toggleDark()" :title="isDark ? '切亮色' : '切暗色'">
@@ -72,33 +74,46 @@ function toggleSidebar() {
 const title = computed(() => route.meta.title || '智链问答')
 const sub = computed(() => route.meta.sub || '')
 
-const navItems = computed(() => {
-  const items = [
+const navGroups = computed(() => {
+  const work = [
     { to: '/chat', icon: '💬', label: '智能问答' },
     { to: '/diagnose', icon: '🩺', label: '异常诊断' },
     { to: '/operations', icon: '⚡', label: '主动预警' },
-    { to: '/documents', icon: '📄', label: '知识库' },
-    { to: '/dashboard', icon: '📊', label: '统计看板' },
-    { to: '/kg', icon: '🧠', label: '知识图谱' },
-    { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
-    { to: '/twin', icon: '🏭', label: '仓配孪生' },
     { to: '/ticket', icon: '📋', label: '作业单管理' },
   ]
+  const knowledge = [
+    { to: '/documents', icon: '📄', label: '知识库' },
+  ]
   if (hasPerm(auth.role, 'doc:manage')) {
-    items.splice(4, 0, { to: '/knowledge-governance', icon: '🧭', label: '知识治理' })
-    items.splice(5, 0, { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' })
+    knowledge.push(
+      { to: '/knowledge-governance', icon: '🧭', label: '知识治理' },
+      { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' },
+    )
   }
+  knowledge.push(
+    { to: '/kg', icon: '🧠', label: '知识图谱' },
+    { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
+  )
+  const analyze = [
+    { to: '/dashboard', icon: '📊', label: '统计看板' },
+    { to: '/twin', icon: '🏭', label: '仓配孪生' },
+  ]
   if (hasPerm(auth.role, 'metric:read')) {
-    items.push({ to: '/prediction', icon: '🔮', label: '异常预测' })
+    analyze.push({ to: '/prediction', icon: '🔮', label: '异常预测' })
   }
+  const system = []
   if (hasPerm(auth.role, 'system:config')) {
-    items.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
+    system.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
   }
-  // 系统管理：管理员全权 + 审计员只读审计（告警/审计/反馈/成本/评测 Tab）
   if (hasPerm(auth.role, 'system:config') || hasPerm(auth.role, 'alert:read')) {
-    items.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
+    system.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
   }
-  return items
+  return [
+    { title: '工作台', items: work },
+    { title: '知识管理', items: knowledge },
+    { title: '分析监控', items: analyze },
+    { title: '系统', items: system },
+  ].filter((g) => g.items.length)
 })
 function isActive(to) { return route.path === to || route.path.startsWith(to + '/') }
 

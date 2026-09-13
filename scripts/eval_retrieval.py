@@ -134,7 +134,7 @@ def main():
     print(f"\n===== 检索质量评测 recall@{topk} =====")
     print(f"样本数: {n}  |  召回率: {recall*100:.1f}%  |  精确率@K: {precision*100:.1f}%")
     print(f"F1@K: {f1:.3f}  |  MRR: {mrr:.3f}  |  NDCG@K: {ndcg:.3f}  |  无结果率: {empty_rate*100:.1f}%")
-    print(f"门禁阈值: {args.threshold*100:.0f}%  ->  {'✓ PASS' if passed else '✗ FAIL'}\n")
+    print(f"门禁阈值: {args.threshold*100:.0f}%  ->  {'PASS' if passed else 'FAIL'}\n")
     print(f"{'分类':<8} {'命中/总数':<12} {'召回率':<10} {'精确率':<10} {'NDCG':<8} {'MRR':<8}")
     print("-" * 56)
     for cat, stats in by_cat.items():
@@ -143,7 +143,7 @@ def main():
               f"{stats['precision_sum']/t*100:>6.0f}%     {stats['ndcg_sum']/t:>5.3f}   {stats['mrr_sum']/t:>5.3f}")
     print("\n明细:")
     for cat, q, expect, rank, ok, docs, p_k, n_val in rows:
-        mark = "✓" if ok else "✗"
+        mark = "OK" if ok else "MISS"
         rstr = f"@{rank}" if rank else "未命中"
         print(f"  {mark} [{cat}] {q[:32]:<32} 期望{expect} {rstr}  P@{topk}={p_k:.1f}  NDCG={n_val:.3f}")
 
@@ -159,7 +159,7 @@ def main():
              f"- MRR: **{mrr:.3f}**",
              f"- NDCG@K: **{ndcg:.3f}**",
              f"- 无结果率: **{empty_rate*100:.1f}%**",
-             f"- 门禁({args.threshold*100:.0f}%): {'✓ PASS' if passed else '✗ FAIL'}", "",
+             f"- 门禁({args.threshold*100:.0f}%): {'PASS' if passed else 'FAIL'}", "",
              "| 分类 | 命中/总数 | 召回率 | 精确率@K | NDCG@K | MRR |",
              "|---|---|---|---|---|"]
     for cat, stats in by_cat.items():
