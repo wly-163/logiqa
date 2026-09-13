@@ -1,6 +1,7 @@
 import axios from 'axios'
 import { useAuthStore } from '../stores/auth'
 import router from '../router'
+import { i18n } from '../i18n'
 
 const request = axios.create({ baseURL: '/api', timeout: 60000 })
 
@@ -20,7 +21,7 @@ request.interceptors.response.use(
     }
     if (d && d.code === 403) {
       // 后端 require_perm 拒绝；派发全局通知，不依赖各视图各自处理
-      window.dispatchEvent(new CustomEvent('app:notify', { detail: { msg: '⛔ ' + (d.message || '无权限执行此操作') } }))
+      window.dispatchEvent(new CustomEvent('app:notify', { detail: { msg: '⛔ ' + (d.message || i18n.global.t('common.forbidden')) } }))
     }
     return d
   },

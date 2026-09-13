@@ -3,7 +3,7 @@
     <aside class="sidebar" :class="{ collapsed, 'mobile-open': mobileOpen }">
       <div class="brand">
         <div class="brand-logo">LQ</div>
-        <div class="brand-text">智链问答<small>LogiQA</small></div>
+        <div class="brand-text">{{ t('brand.name') }}<small>{{ t('brand.en') }}</small></div>
       </div>
       <nav class="nav-list">
         <template v-for="g in navGroups" :key="g.title">
@@ -16,29 +16,30 @@
         </template>
       </nav>
       <div class="sidebar-footer">
-        <a class="nav-item" @click="toggleDark()" :title="isDark ? '切亮色' : '切暗色'">
+        <a class="nav-item" @click="toggleDark()" :title="isDark ? t('common.toLight') : t('common.toDark')">
           <span class="nav-icon">{{ isDark ? '☀️' : '🌙' }}</span>
-          <span class="nav-label">{{ isDark ? '亮色' : '暗色' }}</span>
+          <span class="nav-label">{{ isDark ? t('common.light') : t('common.dark') }}</span>
         </a>
-        <a class="nav-item" @click="logout" title="退出登录">
+        <a class="nav-item" @click="logout" :title="t('common.logout')">
           <span class="nav-icon">🚪</span>
-          <span class="nav-label">退出</span>
+          <span class="nav-label">{{ t('common.logout') }}</span>
         </a>
       </div>
     </aside>
 
     <div class="main-area" :class="{ expanded: collapsed }">
       <header class="topbar">
-        <button class="icon-btn" @click="toggleSidebar" title="折叠侧栏">☰</button>
+        <button class="icon-btn" @click="toggleSidebar" :title="t('common.collapse')">☰</button>
         <div class="topbar-title">
           {{ title }}
           <span class="topbar-sub" v-if="sub">{{ sub }}</span>
         </div>
         <div class="topbar-spacer"></div>
         <slot name="actions" />
-        <div class="topbar-user" style="cursor:pointer" @click="router.push('/profile')" title="个人资料 · 改密码">
+        <LangSwitcher />
+        <div class="topbar-user" style="cursor:pointer" @click="router.push('/profile')" :title="t('common.profile')">
           <div class="avatar">{{ (auth.username || 'U')[0].toUpperCase() }}</div>
-          <span>{{ auth.username }} <span class="muted">· {{ ROLE_LABEL[auth.role] || auth.role }}</span></span>
+          <span>{{ auth.username }} <span class="muted">· {{ t('role.' + (auth.role || 'operator')) }}</span></span>
         </div>
       </header>
       <main class="page-body">
@@ -50,12 +51,15 @@
 </template>
 
 <script setup>
-import { computed, ref, onMounted, onUnmounted } from 'vue'
+import { computed, ref, onMounted, onUnmounted, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useDark, useToggle } from '@vueuse/core'
+import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '../stores/auth'
-import { hasPerm, ROLE_LABEL } from '../utils/perm'
+import { hasPerm } from '../utils/perm'
+import LangSwitcher from '../components/LangSwitcher.vue'
 
+const { t, locale } = useI18n()
 const route = useRoute()
 const router = useRouter()
 const auth = useAuthStore()
@@ -65,61 +69,63 @@ const toggleDark = useToggle(isDark)
 const collapsed = ref(localStorage.getItem('nav-collapsed') === '1')
 const mobileOpen = ref(false)
 function toggleSidebar() {
-  // 移动端：开抽屉；桌面端：折叠
   if (window.innerWidth <= 768) { mobileOpen.value = !mobileOpen.value; return }
   collapsed.value = !collapsed.value
   localStorage.setItem('nav-collapsed', collapsed.value ? '1' : '0')
 }
 
-const title = computed(() => route.meta.title || '智链问答')
-const sub = computed(() => route.meta.sub || '')
+const title = computed(() => t(route.meta.titleKey || 'brand.name'))
+const sub = computed(() => route.meta.subKey ? t(route.meta.subKey) : '')
+
+watch([title, locale], () => {
+  document.title = `${title.value} · LogiQA`
+}, { immediate: true })
 
 const navGroups = computed(() => {
   const work = [
-    { to: '/chat', icon: '💬', label: '智能问答' },
-    { to: '/diagnose', icon: '🩺', label: '异常诊断' },
-    { to: '/operations', icon: '⚡', label: '主动预警' },
-    { to: '/ticket', icon: '📋', label: '作业单管理' },
+    { to: '/chat', icon: '💬', label: t('nav.chat') },
+    { to: '/diagnose', icon: '🩺', label: t('nav.diagnose') },
+    { to: '/operations', icon: '⚡', label: t('nav.operations') },
+    { to: '/ticket', icon: '📋', label: t('nav.ticket') },
   ]
   const knowledge = [
-    { to: '/documents', icon: '📄', label: '知识库' },
+    { to: '/documents', icon: '📄', label: t('nav.documents') },
   ]
   if (hasPerm(auth.role, 'doc:manage')) {
     knowledge.push(
-      { to: '/knowledge-governance', icon: '🧭', label: '知识治理' },
-      { to: '/knowledge-evolution', icon: '🧬', label: '知识自进化' },
+      { to: '/knowledge-governance', icon: '🧭', label: t('nav.governance') },
+      { to: '/knowledge-evolution', icon: '🧬', label: t('nav.evolution') },
     )
   }
   knowledge.push(
-    { to: '/kg', icon: '🧠', label: '知识图谱' },
-    { to: '/kg-3d', icon: '🌐', label: '3D图谱' },
+    { to: '/kg', icon: '🧠', label: t('nav.kg') },
+    { to: '/kg-3d', icon: '🌐', label: t('nav.kg3d') },
   )
   const analyze = [
-    { to: '/dashboard', icon: '📊', label: '统计看板' },
-    { to: '/twin', icon: '🏭', label: '仓配孪生' },
+    { to: '/dashboard', icon: '📊', label: t('nav.dashboard') },
+    { to: '/twin', icon: '🏭', label: t('nav.twin') },
   ]
   if (hasPerm(auth.role, 'metric:read')) {
-    analyze.push({ to: '/prediction', icon: '🔮', label: '异常预测' })
+    analyze.push({ to: '/prediction', icon: '🔮', label: t('nav.prediction') })
   }
   const system = []
   if (hasPerm(auth.role, 'system:config')) {
-    system.push({ to: '/retrieval-debug', icon: '🔬', label: '检索调试' })
+    system.push({ to: '/retrieval-debug', icon: '🔬', label: t('nav.retrieval') })
   }
   if (hasPerm(auth.role, 'system:config') || hasPerm(auth.role, 'alert:read')) {
-    system.push({ to: '/admin', icon: '⚙️', label: '系统管理' })
+    system.push({ to: '/admin', icon: '⚙️', label: t('nav.admin') })
   }
   return [
-    { title: '工作台', items: work },
-    { title: '知识管理', items: knowledge },
-    { title: '分析监控', items: analyze },
-    { title: '系统', items: system },
+    { title: t('nav.work'), items: work },
+    { title: t('nav.knowledge'), items: knowledge },
+    { title: t('nav.analyze'), items: analyze },
+    { title: t('nav.system'), items: system },
   ].filter((g) => g.items.length)
 })
 function isActive(to) { return route.path === to || route.path.startsWith(to + '/') }
 
 function logout() { auth.logout(); router.push('/login') }
 
-// 全局 403/无权限提示（request.js 拦截 code=403 派发 app:notify）
 const notifyMsg = ref('')
 let notifyTimer = null
 function onNotify(e) {
