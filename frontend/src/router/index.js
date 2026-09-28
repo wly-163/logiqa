@@ -24,6 +24,12 @@ const routes = [
       { path: 'prediction', component: () => import('../views/FaultPrediction.vue'), meta: { auth: true, roles: ['admin', 'auditor'], titleKey: 'route.prediction.title', subKey: 'route.prediction.sub' } },
       { path: 'admin', component: () => import('../views/Admin.vue'), meta: { auth: true, roles: ['admin', 'auditor'], titleKey: 'route.admin.title', subKey: 'route.admin.sub' } },
       { path: 'retrieval-debug', component: () => import('../views/RetrievalDebug.vue'), meta: { auth: true, admin: true, titleKey: 'route.retrieval.title', subKey: 'route.retrieval.sub' } },
+      { path: 'biz/assistant', component: () => import('../views/BizAssistant.vue'), meta: { auth: true, titleKey: 'route.bizAssistant.title', subKey: 'route.bizAssistant.sub' } },
+      { path: 'biz/risk', component: () => import('../views/BizRiskCenter.vue'), meta: { auth: true, titleKey: 'route.bizRisk.title', subKey: 'route.bizRisk.sub' } },
+      { path: 'biz/analysis', component: () => import('../views/BizAnalysis.vue'), meta: { auth: true, titleKey: 'route.bizAnalysis.title', subKey: 'route.bizAnalysis.sub' } },
+      { path: 'biz/capability', component: () => import('../views/BizCapability.vue'), meta: { auth: true, titleKey: 'route.bizCapability.title', subKey: 'route.bizCapability.sub' } },
+      { path: 'biz/ontology', component: () => import('../views/BizOntology.vue'), meta: { auth: true, titleKey: 'route.bizOntology.title', subKey: 'route.bizOntology.sub' } },
+      { path: 'biz/agent-ops', component: () => import('../views/BizAgentOps.vue'), meta: { auth: true, titleKey: 'route.bizAgentOps.title', subKey: 'route.bizAgentOps.sub' } },
     ],
   },
 ]

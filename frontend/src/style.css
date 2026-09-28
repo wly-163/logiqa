@@ -187,6 +187,8 @@ html.dark .nav-item.active { background: var(--sidebar-active-bg); color: var(--
 
 /* 统计卡 */
 .stat-grid { display: grid; gap: 14px; margin-bottom: 18px; }
+.stat-grid.cols-4 { grid-template-columns: repeat(4, 1fr); }
+@media (max-width: 900px) { .stat-grid.cols-4 { grid-template-columns: repeat(2, 1fr); } }
 .stat { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-lg); padding: 18px; box-shadow: var(--shadow-sm); }
 .stat-val { font-size: 28px; font-weight: 700; color: var(--text); line-height: 1.1; }
 .stat-lbl { font-size: 12px; color: var(--text-muted); margin-top: 4px; }

@@ -82,6 +82,14 @@ watch([title, locale], () => {
 }, { immediate: true })
 
 const navGroups = computed(() => {
+  const biz = [
+    { to: '/biz/assistant', icon: '🧭', label: t('nav.bizAssistant') },
+    { to: '/biz/risk', icon: '⚠️', label: t('nav.bizRisk') },
+    { to: '/biz/analysis', icon: '📈', label: t('nav.bizAnalysis') },
+    { to: '/biz/capability', icon: '🗺️', label: t('nav.bizCapability') },
+    { to: '/biz/ontology', icon: '🔗', label: t('nav.bizOntology') },
+    { to: '/biz/agent-ops', icon: '🤖', label: t('nav.bizAgentOps') },
+  ]
   const work = [
     { to: '/chat', icon: '💬', label: t('nav.chat') },
     { to: '/diagnose', icon: '🩺', label: t('nav.diagnose') },
@@ -116,6 +124,7 @@ const navGroups = computed(() => {
     system.push({ to: '/admin', icon: '⚙️', label: t('nav.admin') })
   }
   return [
+    { title: t('nav.biz'), items: biz },
     { title: t('nav.work'), items: work },
     { title: t('nav.knowledge'), items: knowledge },
     { title: t('nav.analyze'), items: analyze },

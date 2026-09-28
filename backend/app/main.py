@@ -334,6 +334,7 @@ async def health():
 
 # ---- 路由挂载 ----
 from app.routers import (  # noqa: E402
+    biz_center,
     document,
     domain,
     kg,
@@ -363,6 +364,7 @@ app.include_router(task_center.router, prefix=settings.API_PREFIX)
 app.include_router(realtime_event.router, prefix=settings.API_PREFIX)
 app.include_router(knowledge_governance.router, prefix=settings.API_PREFIX)
 app.include_router(knowledge_evolution.router, prefix=settings.API_PREFIX)
+app.include_router(biz_center.router, prefix=settings.API_PREFIX)
 app.include_router(mcp_router, prefix=settings.API_PREFIX)
 
 
